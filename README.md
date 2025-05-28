@@ -1,8 +1,3 @@
-# MEIA_ISEP_TEAM7_2024_2025_Challenge_4Here’s a ready-to-share README.md file that summarizes your project, setup steps, and how to run it:
-
-⸻
-
-README.md
 
 # 🌾 deepWheat - Multi-Agent Drone Monitoring System
 
@@ -33,97 +28,99 @@ This simulation consists of four types of agents:
 
 ---
 
-## 🗂️ Project Structure
+## 📁 Project Structure
 
+```
 deepWheat/
 ├── agents/
-│   ├── init.py
+│   ├── __init__.py
 │   ├── central_agent.py
 │   ├── field_agent.py
 │   ├── treatment_drone.py
 │   └── vigilant_drone.py
 ├── utils/
-│   ├── init.py
+│   ├── __init__.py
 │   └── battery.py
 ├── main.py
 ├── config.py
 ├── requirements.txt
 └── README.md
-
----
-
-## ⚙️ Prerequisites
-
-- Python 3.10.x
-- [Prosody](https://prosody.im/) XMPP server
-- Virtual environment tool (e.g. `venv`)
+```
 
 ---
 
 ## 📦 Installation
 
 1. Clone the project:
-   ```bash
-   git clone https://github.com/your-org/deepWheat.git
-   cd deepWheat
 
-	2.	Create and activate a virtual environment:
+```bash
+git clone https://github.com/your-org/deepWheat.git
+cd deepWheat
+```
 
+2. Create and activate a virtual environment:
+
+```bash
 python3 -m venv spade_env
 source spade_env/bin/activate
+```
 
+3. Install dependencies:
 
-	3.	Install dependencies:
-
+```bash
 pip install -r requirements.txt
+```
 
+---
 
+## 🛰️ Prosody Setup
 
-⸻
+1. Install Prosody:
 
-🛰️ Prosody Setup
-	1.	Install Prosody:
-
+```bash
 brew tap prosody/prosody
 brew install prosody
+```
 
+2. Start Prosody:
 
-	2.	Start Prosody:
-
+```bash
 sudo prosodyctl start
+```
 
+3. Create the required XMPP users:
 
-	3.	Create the required XMPP users:
-
+```bash
 sudo prosodyctl adduser central@localhost
 sudo prosodyctl adduser vigilant1@localhost
 sudo prosodyctl adduser vigilant2@localhost
 sudo prosodyctl adduser treatment1@localhost
 sudo prosodyctl adduser field1@localhost
+```
 
+---
 
+## 🚀 Running the System
 
-⸻
-
-🚀 Running the System
-
+```bash
 python main.py
+```
 
 You’ll see logs for:
-	•	Agent registration and activation
-	•	Simulated environmental conditions
-	•	Battery usage & recharge behavior
-	•	Communication between agents
-	•	Drone actions (scan, detect, treat)
 
-⸻
+- Agent registration and activation
+- Simulated environmental conditions
+- Battery usage & recharge behavior
+- Communication between agents
+- Drone actions (scan, detect, treat)
 
-📋 Notes
-	•	Drones consume more battery with higher wind speeds.
-	•	Vigilant drones only recharge if battery < 20%.
-	•	Central agent dynamically assigns available drones to tasks.
-	•	Random conditions and disease detection are used to simulate variability.
+---
 
-⸻
+## 📋 Notes
 
+- Drones consume more battery with higher wind speeds.
+- Vigilant drones only recharge if battery < 20%.
+- Central agent dynamically assigns available drones to tasks.
+- Random conditions and disease detection are used to simulate variability.
 
+---
