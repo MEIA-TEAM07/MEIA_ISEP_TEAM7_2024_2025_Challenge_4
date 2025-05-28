@@ -1,0 +1,9 @@
+spade==3.2.1
+aioxmpp==0.13.3
+aiohttp==3.10.4
+lxml==4.9.4
+pyopenssl>=22.0.0
+babel>=2.3
+sortedcontainers
+dnspython<3.0
+
