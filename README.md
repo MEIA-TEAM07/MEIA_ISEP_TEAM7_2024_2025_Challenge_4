@@ -1,7 +1,7 @@
 
 # 🌾 deepWheat - Multi-Agent Drone Monitoring System
 
-**deepWheat** is a prototype platform developed as part of a PhD reinforcement learning project. It simulates a collaborative system of drones and field agents to monitor and treat wheat crops for diseases using the SPADE multi-agent framework.
+**deepWheat** is a prototype platform developed as part of a SMAGIA reinforcement learning project. It simulates a collaborative system of drones and field agents to monitor and treat wheat crops for diseases using the SPADE multi-agent framework.
 
 ---
 
