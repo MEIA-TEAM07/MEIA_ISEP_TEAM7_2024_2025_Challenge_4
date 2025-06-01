@@ -5,6 +5,7 @@ from spade.behaviour import FSMBehaviour, State
 from spade.message import Message
 from utils.battery import compute_battery_usage, drain_battery
 from utils.logger import print_log, print_agent_header
+from spade.behaviour import CyclicBehaviour
 
 class VigilantDroneAgent(Agent):
     class VigilantFSM(FSMBehaviour):
@@ -14,6 +15,24 @@ class VigilantDroneAgent(Agent):
 
         async def on_end(self):
             print_log(self.agent.jid.user, "🛬 Vigilant Drone FSM finished.")
+
+    class NegotiationBehaviour(CyclicBehaviour):
+        async def run(self):
+            msg = await self.receive(timeout=5)
+            if msg and msg.metadata.get("performative") == "cfp":
+                field = msg.body
+                # Send proposal back
+                proposal = Message(to="central@localhost")
+                proposal.set_metadata("performative", "proposal")
+                proposal.set_metadata("ontology", "monitoring_task")
+                body = f"{self.agent.jid.user}|{self.agent.battery_level}|{self.agent.wind_speed:.2f}"
+                proposal.body = body
+                await self.send(proposal)
+
+            elif msg and msg.metadata.get("performative") == "accept_proposal":
+                field = msg.body
+                fsm = self.agent.create_fsm(field)
+                self.agent.add_behaviour(fsm)
 
     class Idle(State):
         async def run(self):
@@ -87,17 +106,11 @@ class VigilantDroneAgent(Agent):
         usage = compute_battery_usage(base_cost, self.wind_speed)
         self.battery_level = drain_battery(self.battery_level, usage)
         print_log(self.jid.user, f"🔋 Battery after flying: {self.battery_level:.2f}% (used {usage:.2f}%)")
-
-    async def setup(self):
-
-        self.wind_speed = 5 + 10 * random.random()  # e.g., 5–15 km/h
-        self.battery_level = 100.0
-
-        print(f"🌬️ Wind Speed: {self.wind_speed:.2f} km/h")
-        print(f"🔋 Initial Battery: {self.battery_level}%")
-
-        print(f"🚁 VigilantDroneAgent {self.jid} is online.")
+    
+    def create_fsm(self, field_data=None):
         fsm = self.VigilantFSM()
+        fsm.agent = self
+        
         fsm.add_state(name="IDLE", state=self.Idle(), initial=True)
         fsm.add_state(name="NAVIGATE", state=self.NavigateToField())
         fsm.add_state(name="SCAN", state=self.ScanField())
@@ -109,6 +122,23 @@ class VigilantDroneAgent(Agent):
         fsm.add_transition("SCAN", "REPORT")
         fsm.add_transition("REPORT", "RETURN")
         fsm.add_transition("RETURN", "IDLE")
-        fsm.add_transition("IDLE", "IDLE")  # if no message received
+        fsm.add_transition("IDLE", "IDLE")  # fallback
 
+        if field_data:
+            fsm.set("target_field", field_data)
+
+        return fsm
+
+    async def setup(self):
+
+        self.wind_speed = 5 + 10 * random.random()  # e.g., 5–15 km/h
+        self.battery_level = 100.0
+
+        print(f"🌬️ Wind Speed: {self.wind_speed:.2f} km/h")
+        print(f"🔋 Initial Battery: {self.battery_level}%")
+
+        print(f"🚁 VigilantDroneAgent {self.jid} is online.")
+      
+        fsm = self.create_fsm()        
         self.add_behaviour(fsm)
+        self.add_behaviour(self.NegotiationBehaviour())
