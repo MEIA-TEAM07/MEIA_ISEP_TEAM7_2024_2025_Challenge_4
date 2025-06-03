@@ -76,8 +76,8 @@ class VigilantDroneAgent(Agent):
     class ReportFinding(State):
         async def run(self):
             if self.get("disease_found"):
-                print_log(self.agent.jid.user, "🦠 Disease detected! Notifying Treatment Drone...")
-                msg = Message(to="treatment1@localhost")  # update if needed
+                print_log(self.agent.jid.user, "🦠 Disease detected! Notifying Payload Drone...")
+                msg = Message(to="payload1@localhost")  # update if needed
                 msg.set_metadata("performative", "inform")
                 msg.set_metadata("ontology", "disease_alert")
                 msg.body = f"Disease found at field {self.get('target_field')}"
@@ -110,7 +110,7 @@ class VigilantDroneAgent(Agent):
     def create_fsm(self, field_data=None):
         fsm = self.VigilantFSM()
         fsm.agent = self
-        
+
         fsm.add_state(name="IDLE", state=self.Idle(), initial=True)
         fsm.add_state(name="NAVIGATE", state=self.NavigateToField())
         fsm.add_state(name="SCAN", state=self.ScanField())

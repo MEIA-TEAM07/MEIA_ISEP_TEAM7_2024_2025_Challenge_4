@@ -4,7 +4,7 @@ from datetime import datetime
 AGENT_COLORS = {
     "central": "\033[94m",    # Blue
     "vigilant": "\033[92m",   # Green
-    "treatment": "\033[91m",  # Red
+    "payload": "\033[91m",  # Red
     "field": "\033[93m",      # Yellow
     "default": "\033[0m",     # Reset
 }
@@ -17,8 +17,8 @@ def get_color(agent_name: str) -> str:
         return AGENT_COLORS["central"]
     elif agent_name.startswith("vigilant"):
         return AGENT_COLORS["vigilant"]
-    elif agent_name.startswith("treatment"):
-        return AGENT_COLORS["treatment"]
+    elif agent_name.startswith("payload"):
+        return AGENT_COLORS["payload"]
     elif agent_name.startswith("field"):
         return AGENT_COLORS["field"]
     else:
