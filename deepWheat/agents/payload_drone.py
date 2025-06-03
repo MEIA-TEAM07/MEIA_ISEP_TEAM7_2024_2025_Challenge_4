@@ -23,7 +23,7 @@ class PayloadDroneAgent(Agent):
                     print_log(self.agent.jid.user, f"📩 Received CFP for {ontology} at {field}")
 
                     # Respond with proposal
-                    proposal = Message(to=msg.sender)
+                    proposal = Message(to=str(msg.sender))
                     proposal.set_metadata("performative", "proposal")
                     proposal.set_metadata("ontology", ontology)
                     proposal.body = f"{self.agent.jid.user}|{self.agent.battery_level}|{self.agent.wind_speed:.2f}"
@@ -69,7 +69,7 @@ class PayloadDroneAgent(Agent):
         self.wind_speed = 5 + 10 * random.random()
         self.battery_level = 100.0
 
-        if is_growth_season(datetime.now()):
+        if is_growth_season(datetime.now().date()):
             self.payload = "fertilizer"
         else:
             self.payload = "pesticide"

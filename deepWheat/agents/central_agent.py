@@ -89,5 +89,6 @@ class CentralAgent(Agent):
         fsm.add_transition("WAIT", "SEND_CFP")
         fsm.add_transition("SEND_CFP", "COLLECT_PROPOSALS")
         fsm.add_transition("COLLECT_PROPOSALS", "WAIT")
+        fsm.add_transition("WAIT", "WAIT")
 
         self.add_behaviour(fsm)

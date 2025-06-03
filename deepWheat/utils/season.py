@@ -1,22 +1,17 @@
-from datetime import datetime
+from datetime import datetime, date
 
-def is_growth_season(date: datetime, crop_type: str = "spring") -> bool:
+def is_growth_season(current_date: date, crop_type: str = "spring") -> bool:
     """
-    Returns True if the given date falls within the growth season 
-    for the specified crop type.
+    Determines if the given date is within the growth season for spring wheat.
+    Growth season assumed: March 15 – June 15 (typical for spring wheat in temperate climates).
     """
-    if crop_type == "spring":
-        start = datetime(date.year, 3, 15)
-        end = datetime(date.year, 6, 15)
-        return start <= date <= end
-    elif crop_type == "winter":
-        start = datetime(date.year, 9, 1)
-        end = datetime(date.year, 11, 30)
-        return start <= date <= end
-    return False
+    year = current_date.year
+    start = date(year, 3, 15)
+    end = date(year, 6, 15)
+    return start <= current_date <= end
 
-def get_default_payload(date: datetime, crop_type: str = "spring") -> str:
+def get_default_payload(current_datetime: datetime, crop_type: str = "spring") -> str:
     """
     Returns 'fertilizer' during growth season, otherwise 'pesticide'.
     """
-    return "fertilizer" if is_growth_season(date, crop_type) else "pesticide"
+    return "fertilizer" if is_growth_season(current_datetime.date(), crop_type) else "pesticide"
