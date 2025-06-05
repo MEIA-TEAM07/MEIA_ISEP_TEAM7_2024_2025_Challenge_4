@@ -6,6 +6,7 @@ from utils.season import is_growth_season
 from utils.logger import print_log, print_agent_header
 from datetime import date
 from spade.behaviour import CyclicBehaviour
+from config import WIND_MIN, WIND_MAX
 
 
 class FieldAgent(Agent):
@@ -18,7 +19,7 @@ class FieldAgent(Agent):
             field_name = "field_Summer_Wheat"
             humidity = random.uniform(30, 90)
             temperature = random.uniform(10, 40)
-            wind_speed = random.uniform(5, 20)
+            wind_speed = random.uniform(WIND_MIN, WIND_MAX)
 
             print_log(agent_name, f"🌡️ Simulated Sensor Data @ {field_name}:")
             print_log(agent_name, f"   Humidity: {humidity:.2f}%")

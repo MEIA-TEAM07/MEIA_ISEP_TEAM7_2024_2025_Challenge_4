@@ -6,7 +6,14 @@ from spade.message import Message
 from utils.battery import compute_battery_usage, drain_battery
 from utils.logger import print_log, print_agent_header
 from spade.behaviour import CyclicBehaviour
-from config import BATTERY_LOW_THRESHOLD, RECHARGE_INTERVAL, BATTERY_RECHARGE_STEP
+from config import (
+    BATTERY_LOW_THRESHOLD,
+    BATTERY_RECHARGE_STEP,
+    RECHARGE_INTERVAL,
+    FLIGHT_TIME,
+    WIND_MIN,
+    WIND_MAX
+)
 
 class VigilantDroneAgent(Agent):
     class VigilantFSM(FSMBehaviour):
@@ -65,7 +72,7 @@ class VigilantDroneAgent(Agent):
         async def run(self):
             field = self.get("target_field")
             print_log(self.agent.jid.user, f"🧭 Navigating to field: {field}")
-            await asyncio.sleep(2)  # Simulate travel time
+            await asyncio.sleep(FLIGHT_TIME)  # Simulate travel time
             self.agent.consume_battery(base_cost=5.0)
            
             if self.agent.battery_level < BATTERY_LOW_THRESHOLD:
@@ -77,7 +84,7 @@ class VigilantDroneAgent(Agent):
     class ScanField(State):
         async def run(self):
             print_log(self.agent.jid.user, "🔍 Scanning field...")
-            await asyncio.sleep(2)
+            await asyncio.sleep(FLIGHT_TIME)
             disease_found = random.random() > 0.5
             self.set("disease_found", disease_found)
             self.set_next_state("REPORT")
@@ -98,7 +105,7 @@ class VigilantDroneAgent(Agent):
     class ReturnToBase(State):
         async def run(self):
             print_log(self.agent.jid.user, "🔋 Returning to base...")
-            await asyncio.sleep(2)
+            await asyncio.sleep(FLIGHT_TIME)
 
             if self.agent.battery_level < BATTERY_LOW_THRESHOLD:
                 print_log(self.agent.jid.user, "⚡ Low battery detected. Starting recharge...")
@@ -142,7 +149,7 @@ class VigilantDroneAgent(Agent):
 
     async def setup(self):
         self.recharging = False
-        self.wind_speed = 5 + 10 * random.random()  # e.g., 5–15 km/h
+        self.wind_speed = random.uniform(WIND_MIN, WIND_MAX)  # e.g., 5–15 km/h
         self.battery_level = 100.0
 
         print(f"🌬️ Wind Speed: {self.wind_speed:.2f} km/h")

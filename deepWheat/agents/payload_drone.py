@@ -8,7 +8,15 @@ from spade.message import Message
 from utils.logger import print_log, print_agent_header
 from utils.battery import compute_battery_usage, drain_battery
 from utils.season import is_growth_season
-from config import BATTERY_LOW_THRESHOLD, RECHARGE_INTERVAL, BATTERY_RECHARGE_STEP
+from config import (
+    BATTERY_LOW_THRESHOLD,
+    BATTERY_RECHARGE_STEP,
+    RECHARGE_INTERVAL,
+    FLIGHT_TIME,
+    APPLICATION_TIME,
+    WIND_MIN,
+    WIND_MAX
+)
 
 class PayloadDroneAgent(Agent):
     class TaskHandler(CyclicBehaviour):
@@ -45,16 +53,16 @@ class PayloadDroneAgent(Agent):
                     await self.agent.execute_task(f"field {field}", "pesticide_request")
 
                 else:
-                    print_log(self.agent.jid.user, "⚠️ Unknown message received")
+                    print_log(self.agent.jid.user, f"⚠️ Unknown message received: {msg.metadata}, body: {msg.body}")
 
     async def execute_task(self, field, ontology):
         operation = "fertilizer" if ontology == "fertilization_request" else "pesticide"
         print_log(self.jid.user, f"🧭 Navigating to {field} with {operation}...")
-        await asyncio.sleep(2)
+        await asyncio.sleep(FLIGHT_TIME)
         self.consume_battery(base_cost=5.0)
 
         print_log(self.jid.user, f"🧪 Applying {operation} at {field}...")
-        await asyncio.sleep(2)
+        await asyncio.sleep(APPLICATION_TIME)
         self.consume_battery(base_cost=3.0)
 
         print_log(self.jid.user, f"✅ {operation.capitalize()} application complete.")
@@ -62,12 +70,12 @@ class PayloadDroneAgent(Agent):
 
         if self.battery_level < BATTERY_LOW_THRESHOLD:
             print_log(self.jid.user, "🔋 Battery low — returning to base...")
-            await asyncio.sleep(2)
+            await asyncio.sleep(FLIGHT_TIME)
             self.consume_battery(base_cost=5.0)
 
             print_log(self.jid.user, "🔌 Recharging battery at base...")
             self.recharging = True
-            
+
             while self.battery_level < 100:
                 await asyncio.sleep(RECHARGE_INTERVAL)
                 self.battery_level = min(100.0, self.battery_level + BATTERY_RECHARGE_STEP)
@@ -85,7 +93,7 @@ class PayloadDroneAgent(Agent):
 
     async def setup(self):
         self.recharging = False
-        self.wind_speed = 5 + 10 * random.random()
+        self.wind_speed = random.uniform(WIND_MIN, WIND_MAX)
         self.battery_level = 100.0
 
         if is_growth_season(datetime.now().date()):
