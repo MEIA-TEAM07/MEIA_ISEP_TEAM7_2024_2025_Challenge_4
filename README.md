@@ -1,126 +1,107 @@
+# deepWheat
 
-# 🌾 deepWheat - Multi-Agent Drone Monitoring System
+**Precision Agriculture Multi-Agent System**
 
-**deepWheat** is a prototype platform developed as part of a SMAGIA reinforcement learning project. It simulates a collaborative system of drones and field agents to monitor and treat wheat crops for diseases using the SPADE multi-agent framework.
-
----
-
-## 🧠 Overview
-
-This simulation consists of four types of agents:
-
-1. **FieldAgent**
-   - Simulates environmental sensors (humidity, temperature, wind).
-   - Requests drone scans based on threshold anomalies.
-
-2. **VigilantDroneAgent**
-   - Receives scan tasks and navigates to fields.
-   - Scans for wheat diseases and notifies the treatment drone if needed.
-   - Considers wind impact on battery usage and automatically recharges if battery is low.
-
-3. **TreatmentDroneAgent**
-   - Responds to disease alerts from VigilantDroneAgent.
-   - Navigates to the affected field and simulates pesticide application.
-
-4. **CentralAgent**
-   - Dispatches vigilant drones to fields based on FieldAgent requests.
-   - Coordinates multiple vigilant drones dynamically.
+This project simulates a multi-agent system for precision agriculture using SPADE agents. Drones interact to monitor fields, detect diseases, and apply fertilizers or pesticides according to seasonal and environmental conditions.
 
 ---
 
-## 📁 Project Structure
+## 🚀 Features
+- Autonomous Payload Drones and Vigilant Drones
+- Battery management with dynamic recharge
+- Field condition simulation and disease alerts
+- Seasonal behavior based on crop calendar
+- Contract Net Protocol for task allocation
+- Dynamic task prioritization and drone availability
 
+---
+
+## ⚙️ Project Structure
 ```
-deepWheat/
-├── agents/
-│   ├── __init__.py
-│   ├── central_agent.py
-│   ├── field_agent.py
-│   ├── treatment_drone.py
-│   └── vigilant_drone.py
-├── utils/
-│   ├── __init__.py
-│   └── battery.py
-├── main.py
-├── config.py
-├── requirements.txt
-└── README.md
+.
+├── agents/              # SPADE agent definitions (Field, Central, Drones)
+├── utils/               # Utility functions (logging, battery, negotiation, season)
+├── config.py            # Global configuration variables
+├── main.py              # Starts the simulation
+└── README.md            # Project documentation
 ```
 
 ---
 
-## 📦 Installation
+## 🧠 Agents
 
-1. Clone the project:
+| Agent           | Responsibility                                              |
+|----------------|--------------------------------------------------------------|
+| CentralAgent   | Manages task assignment using ContractNetProtocol            |
+| FieldAgent     | Simulates field data and generates requests                  |
+| PayloadDrone   | Executes fertilization/pesticide tasks and manages battery   |
+| VigilantDrone  | Monitors fields and detects disease                          |
 
+---
+
+## 🛠️ Environment Setup (Ubuntu 22.04)
+
+### 1. Install dependencies
 ```bash
-git clone https://github.com/your-org/deepWheat.git
-cd deepWheat
+sudo apt update
+sudo apt install python3 python3-pip python3-venv -y
 ```
 
-2. Create and activate a virtual environment:
-
+### 2. Create and activate virtual environment
 ```bash
 python3 -m venv spade_env
 source spade_env/bin/activate
 ```
 
-3. Install dependencies:
-
+### 3. Install SPADE (version 4.0.3) and other requirements
 ```bash
+pip install spade==4.0.3
 pip install -r requirements.txt
 ```
 
----
-
-## 🛰️ Prosody Setup
-
-1. Install Prosody:
-
+If `requirements.txt` doesn't exist, you can install manually:
 ```bash
-brew tap prosody/prosody
-brew install prosody
-```
-
-2. Start Prosody:
-
-```bash
-sudo prosodyctl start
-```
-
-3. Create the required XMPP users:
-
-```bash
-sudo prosodyctl adduser central@localhost
-sudo prosodyctl adduser vigilant1@localhost
-sudo prosodyctl adduser vigilant2@localhost
-sudo prosodyctl adduser treatment1@localhost
-sudo prosodyctl adduser field1@localhost
+pip install aioxmpp termcolor
 ```
 
 ---
 
-## 🚀 Running the System
-
+## ▶️ Run the Simulation
 ```bash
 python main.py
 ```
-
-You’ll see logs for:
-
-- Agent registration and activation
-- Simulated environmental conditions
-- Battery usage & recharge behavior
-- Communication between agents
-- Drone actions (scan, detect, treat)
+Then press **Q** and hit **Enter** to gracefully stop the simulation.
 
 ---
 
-## 📋 Notes
-
-- Drones consume more battery with higher wind speeds.
-- Vigilant drones only recharge if battery < 20%.
-- Central agent dynamically assigns available drones to tasks.
-- Random conditions and disease detection are used to simulate variability.
+## 🔧 Configuration
+All behavioral parameters are centralized in `config.py`:
+- `BATTERY_LOW_THRESHOLD`, `BATTERY_RECHARGE_STEP`, `RECHARGE_INTERVAL`
+- Seasonal window: `GROWTH_SEASON_START`, `GROWTH_SEASON_END`
+- Wind range: `WIND_MIN`, `WIND_MAX`
+- Task duration: `FLIGHT_TIME`, `APPLICATION_TIME`
 
 ---
+
+## 📝 Notes
+- Agents ignore tasks if recharging
+- Battery is drained and recharged dynamically
+- Seasonal logic controls fertilizer vs pesticide
+- Agents compete for tasks; best proposal wins
+
+---
+
+## 📡 XMPP Server (Prosody)
+Make sure Prosody is installed and running locally. Example:
+```bash
+sudo prosodyctl start
+```
+Create users for each agent using:
+```bash
+sudo prosodyctl adduser agent_name@localhost
+```
+
+---
+
+## ✅ TODO
+- [ ] Integrate ROS2 Humble and Gazebo for physical simulation

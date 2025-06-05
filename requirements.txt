@@ -1,4 +1,4 @@
-spade==3.2.1
+spade==4.0.3
 aioxmpp==0.13.3
 aiohttp==3.10.4
 lxml==4.9.4
