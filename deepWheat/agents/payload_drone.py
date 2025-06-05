@@ -52,6 +52,9 @@ class PayloadDroneAgent(Agent):
                     print_log(self.agent.jid.user, f"🦠 Alert received — switching to pesticide for field {field}")
                     await self.agent.execute_task(f"field {field}", "pesticide_request")
 
+                elif performative == "reject_proposal":
+                    print_log(self.agent.jid.user, f"❌ Proposal rejected: {msg.body}")
+                
                 else:
                     print_log(self.agent.jid.user, f"⚠️ Unknown message received: {msg.metadata}, body: {msg.body}")
 

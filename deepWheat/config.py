@@ -1,8 +1,8 @@
 # config.py
 
 # Battery thresholds
-BATTERY_LOW_THRESHOLD = 20     # below this, drone should return to base
-BATTERY_CRITICAL_THRESHOLD = 10  # optional: e.g., cannot respond to CFP if below
+BATTERY_LOW_THRESHOLD = 45     # below this, drone should return to base
+BATTERY_CRITICAL_THRESHOLD = 25  # optional: e.g., cannot respond to CFP if below
 
 # Recharging behavior
 BATTERY_RECHARGE_STEP = 20     # battery recharge step per second
