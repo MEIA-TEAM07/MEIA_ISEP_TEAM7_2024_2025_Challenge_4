@@ -6,6 +6,7 @@ from spade.message import Message
 from utils.battery import compute_battery_usage, drain_battery
 from utils.logger import print_log, print_agent_header
 from spade.behaviour import CyclicBehaviour
+from config import BATTERY_LOW_THRESHOLD, RECHARGE_INTERVAL, BATTERY_RECHARGE_STEP
 
 class VigilantDroneAgent(Agent):
     class VigilantFSM(FSMBehaviour):
@@ -20,6 +21,10 @@ class VigilantDroneAgent(Agent):
         async def run(self):
             msg = await self.receive(timeout=5)
             if msg and msg.metadata.get("performative") == "cfp":
+                if self.agent.recharging:
+                    print_log(self.agent.jid.user, f"🔌 Currently recharging — ignoring CFP.")
+                    return
+                
                 field = msg.body
                 # Send proposal back
                 proposal = Message(to="central@localhost")
@@ -33,6 +38,10 @@ class VigilantDroneAgent(Agent):
                 field = msg.body
                 fsm = self.agent.create_fsm(field)
                 self.agent.add_behaviour(fsm)
+                print_log(self.agent.jid.user, "🔥 Proposal accepted.")
+
+            elif msg and msg.metadata.get("performative") == "reject_proposal":
+                print_log(self.agent.jid.user, "❌ Proposal rejected.")
 
     class Idle(State):
         async def run(self):
@@ -59,7 +68,7 @@ class VigilantDroneAgent(Agent):
             await asyncio.sleep(2)  # Simulate travel time
             self.agent.consume_battery(base_cost=5.0)
            
-            if self.agent.battery_level < 15:
+            if self.agent.battery_level < BATTERY_LOW_THRESHOLD:
                 print_log(self.agent.jid.user, "❗ Battery too low to continue. Returning to base.")
                 self.set_next_state("RETURN")
             else:
@@ -91,12 +100,14 @@ class VigilantDroneAgent(Agent):
             print_log(self.agent.jid.user, "🔋 Returning to base...")
             await asyncio.sleep(2)
 
-            if self.agent.battery_level < 20:
+            if self.agent.battery_level < BATTERY_LOW_THRESHOLD:
                 print_log(self.agent.jid.user, "⚡ Low battery detected. Starting recharge...")
-                while self.agent.battery_level < 100:
-                    await asyncio.sleep(1)
-                    self.agent.battery_level = min(100.0, self.agent.battery_level + 20)
-                    print_log(self.agent.jid.user, f"🔌 Recharging... Battery at {self.agent.battery_level:.2f}%")
+                self.agent.recharging = True
+                while self.battery_level < 100:
+                    await asyncio.sleep(RECHARGE_INTERVAL)
+                    self.battery_level = min(100.0, self.battery_level + BATTERY_RECHARGE_STEP)
+                    print_log(self.jid.user, f"🔌 Recharging... Battery at {self.battery_level:.2f}%")
+                self.agent.recharging = False
                 print_log(self.agent.jid.user, "✅ Recharge complete. Drone is ready.")
             else:
                 print_log(self.agent.jid.user, f"🔋 Battery is at {self.agent.battery_level:.2f}% — no recharge needed.")
@@ -130,7 +141,7 @@ class VigilantDroneAgent(Agent):
         return fsm
 
     async def setup(self):
-
+        self.recharging = False
         self.wind_speed = 5 + 10 * random.random()  # e.g., 5–15 km/h
         self.battery_level = 100.0
 

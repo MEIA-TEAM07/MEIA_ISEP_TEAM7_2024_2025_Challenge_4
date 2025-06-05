@@ -8,7 +8,7 @@ from spade.message import Message
 from utils.logger import print_log, print_agent_header
 from utils.battery import compute_battery_usage, drain_battery
 from utils.season import is_growth_season
-
+from config import BATTERY_LOW_THRESHOLD, RECHARGE_INTERVAL, BATTERY_RECHARGE_STEP
 
 class PayloadDroneAgent(Agent):
     class TaskHandler(CyclicBehaviour):
@@ -19,6 +19,10 @@ class PayloadDroneAgent(Agent):
                 ontology = msg.metadata.get("ontology")
 
                 if performative == "cfp" and ontology in {"fertilization_request", "pesticide_request"}:
+                    if self.agent.recharging:
+                        print_log(self.agent.jid.user, f"🔌 Currently recharging — ignoring CFP.")
+                        return
+                    
                     field = msg.body
                     print_log(self.agent.jid.user, f"📩 Received CFP for {ontology} at {field}")
 
@@ -56,9 +60,23 @@ class PayloadDroneAgent(Agent):
         print_log(self.jid.user, f"✅ {operation.capitalize()} application complete.")
         await asyncio.sleep(1)
 
-        print_log(self.jid.user, "🔋 Returning to base...")
-        await asyncio.sleep(2)
-        self.consume_battery(base_cost=5.0)
+        if self.battery_level < BATTERY_LOW_THRESHOLD:
+            print_log(self.jid.user, "🔋 Battery low — returning to base...")
+            await asyncio.sleep(2)
+            self.consume_battery(base_cost=5.0)
+
+            print_log(self.jid.user, "🔌 Recharging battery at base...")
+            self.recharging = True
+            
+            while self.battery_level < 100:
+                await asyncio.sleep(RECHARGE_INTERVAL)
+                self.battery_level = min(100.0, self.battery_level + BATTERY_RECHARGE_STEP)
+                print_log(self.jid.user, f"🔌 Recharging... Battery at {self.battery_level:.2f}%")
+
+            self.recharging = False
+            print_log(self.jid.user, f"🔋 Battery fully recharged: {self.battery_level:.2f}%")
+        else:
+            print_log(self.jid.user, f"🔋 Battery OK ({self.battery_level:.2f}%) — staying in the field.")
 
     def consume_battery(self, base_cost=5.0):
         usage = compute_battery_usage(base_cost, self.wind_speed)
@@ -66,6 +84,7 @@ class PayloadDroneAgent(Agent):
         print_log(self.jid.user, f"🔋 Battery after operation: {self.battery_level:.2f}% (used {usage:.2f}%)")
 
     async def setup(self):
+        self.recharging = False
         self.wind_speed = 5 + 10 * random.random()
         self.battery_level = 100.0
 

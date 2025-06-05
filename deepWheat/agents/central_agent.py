@@ -46,6 +46,7 @@ class CentralAgent(Agent):
                 await self.send(cfp)
 
             self.agent.proposals = []
+            self.agent.responders = drones  # Track who got the CFP
             self.set_next_state("COLLECT_PROPOSALS")
 
     class CollectProposals(State):
@@ -57,9 +58,13 @@ class CentralAgent(Agent):
                 msg = await self.receive(timeout=1)
                 if msg and msg.metadata.get("performative") == "proposal":
                     sender = str(msg.sender).split("/")[0]
-                    drone_name, battery, wind = msg.body.split("|")
-                    score = evaluate_proposal(float(battery), float(wind))
-                    self.agent.proposals.append((sender, score, msg.body))
+                    try:
+                        drone_name, battery, wind = msg.body.split("|")
+                        score = evaluate_proposal(float(battery), float(wind))
+                        print_log(self.agent.jid.user, f"Score: {score} for Drone {drone_name}")
+                        self.agent.proposals.append((sender, score, msg.body))
+                    except Exception as e:
+                        print_log(self.agent.jid.user, f"⚠️ Malformed proposal from {sender}: {e}")
 
             if self.agent.proposals:
                 best_drone = max(self.agent.proposals, key=lambda p: p[1])
@@ -69,8 +74,16 @@ class CentralAgent(Agent):
                 decision.body = self.get("field_data")
                 await self.send(decision)
                 print_log(self.agent.jid.user, f"✅ Assigned {ontology} to {best_drone[0]}")
+
+                for responder in self.agent.responders:
+                    if responder != best_drone[0]:
+                        rejection = Message(to=responder)
+                        rejection.set_metadata("performative", "reject_proposal")
+                        rejection.set_metadata("ontology", ontology)
+                        rejection.body = "Better proposal selected."
+                        await self.send(rejection)
             else:
-                print_log(self.agent.jid.user, "⚠️ No proposals received.")
+                print_log(self.agent.jid.user, "⚠️ No proposals received. Waiting for recharging agents.")
 
             self.set_next_state("WAIT")
 
