@@ -1,6 +1,5 @@
 import asyncio
 import threading
-import sys
 from agents.vigilant_drone import VigilantDroneAgent
 from agents.field_agent import FieldAgent
 from agents.payload_drone import PayloadDroneAgent
@@ -24,8 +23,11 @@ async def main():
         PayloadDroneAgent(f"payload{i}@localhost", "admin1234")
         for i in range(1, 3)  # creates payload1 and payload2
     ]
-    field = FieldAgent("field1@localhost", "admin1234")
-    #payload = PayloadDroneAgent("payload1@localhost", "admin1234")
+
+    field_agents = [
+        FieldAgent(f"field{i}@localhost", "admin1234")
+        for i in range(1, 3)  # creates payload1 and payload2
+    ]
     central = CentralAgent("central@localhost", "admin1234")
 
     # Start all agents
@@ -37,8 +39,8 @@ async def main():
     for payload_drone in payload_drones:
         await payload_drone.start()
 
-    #await payload.start()
-    await field.start()
+    for field_agent in field_agents:
+        await field_agent.start()
 
     print("✅ All agents started")
     thread = threading.Thread(target=wait_for_q)
@@ -48,7 +50,8 @@ async def main():
         await asyncio.sleep(1)
 
     # ... graceful shutdown ...
-    await field.stop()
+    for field_agent in field_agents:
+        await field_agent.stop()
 
     for payload_drone in payload_drones:
         await payload_drone.stop()

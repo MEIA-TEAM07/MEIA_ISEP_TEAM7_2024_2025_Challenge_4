@@ -20,9 +20,12 @@ class CentralAgent(Agent):
             msg = await self.receive(timeout=10)
             if msg:
                 ontology = msg.metadata.get("ontology")
-                if ontology in ["monitoring_request", "fertilization_request"]:
+                # Accept monitoring, fertilization, and treatment requests
+                if ontology in ["monitoring_request", "fertilization_request", "treatment_request"]:
                     self.set("ontology", ontology)
                     self.set("field_data", msg.body)
+                    # Store which agent requested (for treatment/fertilizer feedback)
+                    self.set("field_agent", str(msg.sender))
                     self.set_next_state("SEND_CFP")
                 else:
                     print_log(self.agent.jid.user, f"⚠️ Unknown request: {ontology}")
@@ -35,18 +38,26 @@ class CentralAgent(Agent):
         async def run(self):
             ontology = self.get("ontology")
             field_data = self.get("field_data")
-            drones = self.agent.vigilant_drones if ontology == "monitoring_request" else self.agent.payload_drones
+            # Decide which drones to send CFP to
+            if ontology == "monitoring_request":
+                drones = self.agent.vigilant_drones
+            else:  # fertilization_request or treatment_request
+                drones = self.agent.payload_drones
 
             print_log(self.agent.jid.user, f"📤 Sending CFP for {ontology}: {field_data}")
             for drone in drones:
                 cfp = Message(to=drone)
                 cfp.set_metadata("performative", "cfp")
-                cfp.set_metadata("ontology", ontology)
+                # Use the right ontology for drones
+                if ontology == "treatment_request":
+                    cfp.set_metadata("ontology", "pesticide_request")
+                else:
+                    cfp.set_metadata("ontology", ontology)
                 cfp.body = field_data
                 await self.send(cfp)
 
             self.agent.proposals = []
-            self.agent.responders = drones  # Track who got the CFP
+            self.agent.responders = drones
             self.set_next_state("COLLECT_PROPOSALS")
 
     class CollectProposals(State):
@@ -70,16 +81,30 @@ class CentralAgent(Agent):
                 best_drone = max(self.agent.proposals, key=lambda p: p[1])
                 decision = Message(to=best_drone[0])
                 decision.set_metadata("performative", "accept_proposal")
-                decision.set_metadata("ontology", ontology)
+                # Use correct ontology for drone accept
+                if ontology == "treatment_request":
+                    decision.set_metadata("ontology", "pesticide_request")
+                else:
+                    decision.set_metadata("ontology", ontology)
                 decision.body = self.get("field_data")
                 await self.send(decision)
                 print_log(self.agent.jid.user, f"✅ Assigned {ontology} to {best_drone[0]}")
 
+                # Notify FieldAgent when a treatment is assigned
+                if ontology == "treatment_request":
+                    field_agent_jid = self.get("field_agent")
+                    fa_msg = Message(to=field_agent_jid)
+                    fa_msg.set_metadata("performative", "inform")
+                    fa_msg.set_metadata("ontology", "treatment_assigned")
+                    fa_msg.body = self.get("field_data")  # Pass field, coords, disease
+                    await self.send(fa_msg)
+
+                # Send rejections to other responders
                 for responder in self.agent.responders:
                     if responder != best_drone[0]:
                         rejection = Message(to=responder)
                         rejection.set_metadata("performative", "reject_proposal")
-                        rejection.set_metadata("ontology", ontology)
+                        rejection.set_metadata("ontology", ontology if ontology != "treatment_request" else "pesticide_request")
                         rejection.body = "Better proposal selected."
                         await self.send(rejection)
             else:
