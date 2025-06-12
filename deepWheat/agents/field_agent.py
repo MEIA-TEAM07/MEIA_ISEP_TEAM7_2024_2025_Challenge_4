@@ -21,7 +21,7 @@ class FieldAgent(Agent):
         self.initialized_today = False  # Track if we've done initial setup today
         
     def initialize_field_memory(self, field_id, rows, cols):
-        # Per-plant data + per-field fertilization date
+        # Per-plant data + per-field fertilization date + monitoring date
         memory = {}
         for x in range(rows):
             for y in range(cols):
@@ -31,9 +31,19 @@ class FieldAgent(Agent):
                 }
         memory["last_fertilized_date"] = None
         memory["last_init_date"] = None  # Track when we last did initialization
+        memory["last_monitoring_date"] = None  # Track when we last requested monitoring
         return memory
 
     class FieldBehaviour(CyclicBehaviour):
+        async def request_weekly_monitoring(self, field_id, wind_speed):
+            """Request vigilant drone monitoring (weekly) - called from within behavior"""
+            msg = Message(to="central@localhost")
+            msg.set_metadata("performative", "request")
+            msg.set_metadata("ontology", "monitoring_request")
+            msg.body = f"{field_id}|{wind_speed:.2f}"
+            await self.send(msg)  # Use self.send from behavior, not self.agent.send
+            print_log(self.agent.jid.user, f"📤 Weekly monitoring request sent for {field_id}")
+
         async def run(self):
             agent_name = self.agent.jid.user
             field_id = self.agent.field_id
@@ -67,6 +77,24 @@ class FieldAgent(Agent):
                         print_log(agent_name, f"✅ {field_id} already fertilized today")
                 else:
                     print_log(agent_name, f"❄️ Outside growth season - no fertilization needed")
+
+                # WEEKLY MONITORING CHECK - Request vigilant drone monitoring
+                last_monitoring = self.agent.memory.get("last_monitoring_date")
+                
+                if last_monitoring is None:
+                    # First time - always request monitoring
+                    print_log(agent_name, f"🔍 First monitoring request for {field_id}")
+                    await self.request_weekly_monitoring(field_id, wind_speed)  # Call behavior method
+                    self.agent.memory["last_monitoring_date"] = today
+                else:
+                    # Check if a week has passed since last monitoring
+                    days_since_monitoring = (today - last_monitoring).days
+                    if days_since_monitoring >= 7:
+                        print_log(agent_name, f"🔍 Weekly monitoring needed for {field_id} (last: {days_since_monitoring} days ago)")
+                        await self.request_weekly_monitoring(field_id, wind_speed)  # Call behavior method
+                        self.agent.memory["last_monitoring_date"] = today
+                    else:
+                        print_log(agent_name, f"🔍 Monitoring up to date for {field_id} (last: {days_since_monitoring} days ago)")
 
                 # Mark as initialized for today
                 self.agent.initialized_today = True
