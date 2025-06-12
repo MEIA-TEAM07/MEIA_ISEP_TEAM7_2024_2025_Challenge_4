@@ -16,6 +16,7 @@ This project simulates a sophisticated multi-agent system for precision agricult
 
 ### **Smart Agriculture Operations**
 - **Autonomous field monitoring** with disease detection
+- **Weekly preventive monitoring** to ensure crop health
 - **Precision fertilization** during growth seasons
 - **Targeted pesticide application** for diseased plants
 - **Weather-aware decision making** using OpenWeatherMap API
@@ -52,12 +53,13 @@ CentralAgent (Coordinator)
 
 ### **Communication Flow**
 1. **Field Agents** monitor weather and crop conditions
-2. **Fertilization requests** sent during growth season
-3. **CentralAgent** broadcasts CFP (Call for Proposals)
-4. **All available drones** submit competitive proposals
-5. **Best proposal wins** based on battery + wind scoring
-6. **Parallel operations** with automatic request queuing
-7. **Disease alerts** trigger targeted treatment requests
+2. **Weekly monitoring requests** sent to ensure crop health
+3. **Fertilization requests** sent during growth season
+4. **CentralAgent** broadcasts CFP (Call for Proposals)
+5. **All available drones** submit competitive proposals
+6. **Best proposal wins** based on battery + wind scoring
+7. **Parallel operations** with automatic request queuing
+8. **Disease alerts** trigger targeted treatment requests
 
 ---
 
@@ -92,9 +94,9 @@ deepWheat/
 - **Drone Fleet**: Manages 3 payload drones + 2 vigilant drones
 
 ### **FieldAgent** - Field Management
-- **Responsibilities**: Weather monitoring, crop status, fertilization requests
+- **Responsibilities**: Weather monitoring, crop status, fertilization requests, weekly monitoring
 - **Data Sources**: OpenWeatherMap API, growth season calendar
-- **Features**: Daily initialization, treatment tracking, completion monitoring
+- **Features**: Daily initialization, weekly preventive monitoring, treatment tracking, completion monitoring
 - **Coverage**: Each agent manages one 2x5 grid field (10 plants)
 
 ### **PayloadDroneAgent** - Operations Execution
@@ -173,12 +175,16 @@ python main.py
 ### **Expected Output**
 ```
 🚁 Managing 2 vigilant drones and 3 payload drones
+🔍 First monitoring request for field_1
+📤 Weekly monitoring request sent for field_1
 📤 Sending CFP for fertilization_request: field_1|3.09 to 3 payload drones
+📤 Sending CFP for monitoring_request: field_1|3.09 to 2 vigilant drones
 📊 Proposal from payload1: Battery=100.0%, Wind=10.58km/h, Score=0.65
-📊 Proposal from payload2: Battery=100.0%, Wind=10.12km/h, Score=0.66
-📊 Proposal from payload3: Battery=100.0%, Wind=8.98km/h, Score=0.70
+📊 Proposal from vigilant1: Battery=100.0%, Wind=12.44km/h, Score=0.59
 🏆 Best proposal: payload3 (score: 0.70)
 ✅ Assigned fertilization_request to payload3
+🦠 Disease (white_stripe) detected at field_1 (0, 1)
+🎉 Treatment COMPLETE @ field_1 (0,1) - plant is healthy!
 ```
 
 ### **Stop the Simulation**
@@ -226,6 +232,12 @@ DISEASED_PLANTS = {
 
 ## 🔬 System Behavior
 
+### **Weekly Monitoring System**
+- **First Run**: Always requests monitoring for immediate crop assessment
+- **Subsequent Runs**: Automatically requests monitoring every 7 days
+- **Preventive Care**: Ensures regular field inspection regardless of detected conditions
+- **Simple Logic**: Uses date comparison to track last monitoring request
+
 ### **Contract Net Protocol Flow**
 1. **Field Agent** detects fertilization need
 2. **Central Agent** broadcasts CFP to all payload drones
@@ -243,7 +255,7 @@ def evaluate_proposal(battery_level, wind_speed):
 ```
 
 ### **Disease Detection Workflow**
-1. **Vigilant Drone** scans field grid systematically
+1. **Vigilant Drone** scans field grid systematically (weekly + on-demand)
 2. **Disease detected** at specific plant coordinates
 3. **Field Agent** receives disease alert with position
 4. **Treatment request** sent if plant not already being treated
@@ -263,6 +275,7 @@ def evaluate_proposal(battery_level, wind_speed):
 ### **Key Metrics Tracked**
 - Drone battery levels and recharge cycles
 - Wind conditions and flight efficiency
+- Weekly monitoring schedule compliance
 - Task completion rates and timing
 - Proposal scores and selection rationale
 - Disease detection and treatment effectiveness
