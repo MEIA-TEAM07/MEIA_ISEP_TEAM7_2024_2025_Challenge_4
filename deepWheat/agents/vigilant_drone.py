@@ -36,23 +36,33 @@ class VigilantDroneAgent(Agent):
     class NegotiationBehaviour(CyclicBehaviour):
         async def run(self):
             msg = await self.receive(timeout=5)
-            if msg and msg.metadata.get("performative") == "cfp":
-                if self.agent.recharging:
-                    print_log(self.agent.jid.user, f"🔌 Currently recharging — ignoring CFP.")
-                    return
-                field_id = msg.body
-                proposal = Message(to="central@localhost")
-                proposal.set_metadata("performative", "proposal")
-                proposal.set_metadata("ontology", "monitoring_task")
-                proposal.body = f"{self.agent.jid.user}|{self.agent.battery_level}|{self.agent.wind_speed:.2f}"
-                await self.send(proposal)
-            elif msg and msg.metadata.get("performative") == "accept_proposal":
-                field_id = msg.body
-                fsm = self.agent.create_fsm(field_id)
-                self.agent.add_behaviour(fsm)
-                print_log(self.agent.jid.user, "🔥 Proposal accepted.")
-            elif msg and msg.metadata.get("performative") == "reject_proposal":
-                print_log(self.agent.jid.user, "❌ Proposal rejected.")
+            if msg:
+                performative = msg.metadata.get("performative")
+                ontology = msg.metadata.get("ontology")
+                
+                if performative == "cfp":
+                    if self.agent.recharging:
+                        print_log(self.agent.jid.user, f"🔌 Currently recharging — ignoring CFP.")
+                        return
+                    field_id = msg.body
+                    proposal = Message(to="central@localhost")
+                    proposal.set_metadata("performative", "proposal")
+                    proposal.set_metadata("ontology", "monitoring_request")  # Fixed ontology
+                    proposal.body = f"{self.agent.jid.user}|{self.agent.battery_level}|{self.agent.wind_speed:.2f}"
+                    await self.send(proposal)
+                    
+                elif performative == "accept_proposal":
+                    field_id = msg.body
+                    fsm = self.agent.create_fsm(field_id)
+                    self.agent.add_behaviour(fsm)
+                    print_log(self.agent.jid.user, "🔥 Proposal accepted.")
+                    
+                elif performative == "reject_proposal":
+                    print_log(self.agent.jid.user, "❌ Proposal rejected.")
+                    
+                # Handle registration acknowledgments
+                elif performative == "confirm" and ontology == "registration_ack":
+                    print_log(self.agent.jid.user, f"✅ Registration confirmed: {msg.body}")
 
     class Idle(State):
         async def run(self):
@@ -97,7 +107,7 @@ class VigilantDroneAgent(Agent):
                     pos = (x, y)
                     await asyncio.sleep(FLIGHT_TIME)  # Simulate drone movement
 
-                    plant = shared_field_map.get_plant(pos, field=field_id)
+                    plant = shared_field_map.get_plant(field_id, pos)  # Fixed parameter order
                     status = plant["status"] if plant else "unknown"
                     being_treated = plant["being_treated"] if plant else False
 
@@ -168,12 +178,15 @@ class VigilantDroneAgent(Agent):
         return fsm
 
     async def setup(self):
+        await super().setup()
+        
         self.recharging = False
         self.wind_speed = random.uniform(WIND_MIN, WIND_MAX)
         self.battery_level = 100.0
         print(f"🌬️ Wind Speed: {self.wind_speed:.2f} km/h")
         print(f"🔋 Initial Battery: {self.battery_level}%")
         print(f"🚁 VigilantDroneAgent {self.jid} is online.")
+        
         fsm = self.create_fsm()
         self.add_behaviour(fsm)
         self.add_behaviour(self.NegotiationBehaviour())

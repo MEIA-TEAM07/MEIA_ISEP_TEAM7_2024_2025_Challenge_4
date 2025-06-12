@@ -4,6 +4,7 @@ from agents.vigilant_drone import VigilantDroneAgent
 from agents.field_agent import FieldAgent
 from agents.payload_drone import PayloadDroneAgent
 from agents.central_agent import CentralAgent
+from config import FIELD_AGENTS
 
 stop_event = threading.Event()
 
@@ -21,16 +22,16 @@ async def main():
     ]
     payload_drones = [
         PayloadDroneAgent(f"payload{i}@localhost", "admin1234")
-        for i in range(1, 3)  # creates payload1 and payload2
+        for i in range(1, 4)  # creates payload1, payload2, and payload3
     ]
 
     field_agents = [
-        FieldAgent(f"field{i}@localhost", "admin1234")
-        for i in range(1, 3)  # creates payload1 and payload2
-    ]
+        FieldAgent(cfg["agent_jid"], "admin1234", cfg["field_id"])
+        for cfg in FIELD_AGENTS
+    ]   
     central = CentralAgent("central@localhost", "admin1234")
 
-    # Start all agents
+    # Start all agents in the original simple way
     await central.start()
 
     for drone in drones:
@@ -43,13 +44,14 @@ async def main():
         await field_agent.start()
 
     print("✅ All agents started")
+
     thread = threading.Thread(target=wait_for_q)
     thread.start()
 
     while not stop_event.is_set():
         await asyncio.sleep(1)
 
-    # ... graceful shutdown ...
+    # Graceful shutdown
     for field_agent in field_agents:
         await field_agent.stop()
 

@@ -8,6 +8,7 @@ from spade.message import Message
 from utils.logger import print_log, print_agent_header
 from utils.battery import compute_battery_usage, drain_battery
 from utils.season import is_growth_season
+from utils.field_map import shared_field_map
 from config import (
     BATTERY_LOW_THRESHOLD,
     BATTERY_RECHARGE_STEP,
@@ -16,7 +17,9 @@ from config import (
     APPLICATION_TIME,
     WIND_MIN,
     WIND_MAX,
-    FIELD_AGENT_ASSIGNMENT,  # <-- NEW!
+    FIELD_ROWS,
+    FIELD_COLS,
+    FIELD_AGENT_ASSIGNMENT,
 )
 
 class PayloadDroneAgent(Agent):
@@ -32,7 +35,7 @@ class PayloadDroneAgent(Agent):
                         print_log(self.agent.jid.user, f"🔌 Currently recharging — ignoring CFP.")
                         return
 
-                    field_info = msg.body  # expects e.g. "field_1|1,2"
+                    field_info = msg.body
                     print_log(self.agent.jid.user, f"📩 Received CFP for {ontology} at {field_info}")
 
                     # Respond with proposal
@@ -44,9 +47,12 @@ class PayloadDroneAgent(Agent):
                     print_log(self.agent.jid.user, f"📤 Sent proposal for {ontology} at {field_info}")
 
                 elif performative == "accept_proposal" and ontology in {"fertilization_request", "pesticide_request"}:
-                    field_info = msg.body  # expects e.g. "field_1|1,2"
+                    field_info = msg.body
                     print_log(self.agent.jid.user, f"✅ Proposal accepted for {ontology} at {field_info}")
-                    await self.agent.execute_task(field_info, ontology)
+                    # Call execute_task, which returns a list of msgs to send
+                    messages = await self.agent.execute_task(field_info, ontology)
+                    for m in messages:
+                        await self.send(m)
 
                 elif performative == "inform" and ontology == "disease_alert":
                     # Not used for this agent but kept for compatibility
@@ -55,65 +61,90 @@ class PayloadDroneAgent(Agent):
                 elif performative == "reject_proposal":
                     print_log(self.agent.jid.user, f"❌ Proposal rejected: {msg.body}")
 
+                # Handle registration acknowledgments
+                elif performative == "confirm" and ontology == "registration_ack":
+                    print_log(self.agent.jid.user, f"✅ Registration confirmed: {msg.body}")
+
                 else:
                     print_log(self.agent.jid.user, f"⚠️ Unknown message received: {msg.metadata}, body: {msg.body}")
 
     async def execute_task(self, field_info, ontology):
+        """
+        Returns: List of Message objects to send after completion
+        """
+        messages_to_send = []
         # Parse field_id and position from field_info
         if "|" in field_info:
-            field_id, xy = field_info.split("|", 1)
+            field_id, xy_rest = field_info.split("|", 1)
+            # xy_rest can be "1,2" or "1,2|wind" (ignore wind if present)
+            xy = xy_rest.split("|")[0]
         else:
-            # fallback if old format
             field_id = field_info
             xy = None
 
-        operation = "fertilizer" if ontology == "fertilization_request" else "pesticide"
-        log_details = f"{field_id} {xy}" if xy else field_id
-        print_log(self.jid.user, f"🧭 Navigating to {log_details} with {operation}...")
-        await asyncio.sleep(FLIGHT_TIME)
-        self.consume_battery(base_cost=5.0)
-
-        print_log(self.jid.user, f"🧪 Applying {operation} at {log_details}...")
-        await asyncio.sleep(APPLICATION_TIME)
-        self.consume_battery(base_cost=3.0)
-
-        print_log(self.jid.user, f"✅ {operation.capitalize()} application complete.")
-        await asyncio.sleep(1)
-
-        # Notify FieldAgent of treatment/fertilization completion if possible
         field_agent_jid = FIELD_AGENT_ASSIGNMENT.get(field_id, "field1@localhost")
-        if operation == "pesticide" and xy:
+
+        # FERTILIZATION: iterate over all plants in field
+        if ontology == "fertilization_request":
+            print_log(self.jid.user, f"🌾 Starting full field fertilization for {field_id}")
+            for x in range(FIELD_ROWS):
+                for y in range(FIELD_COLS):
+                    pos = (x, y)
+                    plant = shared_field_map.get_plant(field_id, pos)
+                    op_str = f"{field_id} {x},{y}"
+                    print_log(self.jid.user, f"🧭 Navigating to {op_str} with fertilizer...")
+                    await asyncio.sleep(FLIGHT_TIME)
+                    self.consume_battery(base_cost=5.0)
+                    print_log(self.jid.user, f"🧪 Applying fertilizer at {op_str}...")
+                    await asyncio.sleep(APPLICATION_TIME)
+                    self.consume_battery(base_cost=3.0)
+                    print_log(self.jid.user, f"✅ Fertilization complete at {op_str}")
+                    # Notify field agent for each plant
+                    msg = Message(to=field_agent_jid)
+                    msg.set_metadata("performative", "inform")
+                    msg.set_metadata("ontology", "fertilization_complete")
+                    msg.body = f"{field_id}|{x},{y}|fertilizer"
+                    messages_to_send.append(msg)
+
+                    if self.battery_level < BATTERY_LOW_THRESHOLD:
+                        await self.recharge()
+        # PESTICIDE: treat only the specific plant (x, y)
+        elif ontology == "pesticide_request" and xy:
+            x, y = map(int, xy.split(","))
+            pos = (x, y)
+            op_str = f"{field_id} {x},{y}"
+            print_log(self.jid.user, f"🧭 Navigating to {op_str} with pesticide...")
+            await asyncio.sleep(FLIGHT_TIME)
+            self.consume_battery(base_cost=5.0)
+            print_log(self.jid.user, f"🧪 Applying pesticide at {op_str}...")
+            await asyncio.sleep(APPLICATION_TIME)
+            self.consume_battery(base_cost=3.0)
+            print_log(self.jid.user, f"✅ Treatment complete at {op_str}")
             msg = Message(to=field_agent_jid)
             msg.set_metadata("performative", "inform")
             msg.set_metadata("ontology", "treatment_complete")
-            msg.body = f"{field_id}|{xy}|{operation}"
-            await self.send(msg)
-            print_log(self.jid.user, f"📨 Notified {field_agent_jid} of treatment completion at {log_details}")
-        elif operation == "fertilizer" and xy:
-            msg = Message(to=field_agent_jid)
-            msg.set_metadata("performative", "inform")
-            msg.set_metadata("ontology", "fertilization_complete")
-            msg.body = f"{field_id}|{xy}|{operation}"
-            await self.send(msg)
-            print_log(self.jid.user, f"📨 Notified {field_agent_jid} of fertilization completion at {log_details}")
+            msg.body = f"{field_id}|{x},{y}|pesticide"
+            messages_to_send.append(msg)
 
-        if self.battery_level < BATTERY_LOW_THRESHOLD:
-            print_log(self.jid.user, "🔋 Battery low — returning to base...")
-            await asyncio.sleep(FLIGHT_TIME)
-            self.consume_battery(base_cost=5.0)
-
-            print_log(self.jid.user, "🔌 Recharging battery at base...")
-            self.recharging = True
-
-            while self.battery_level < 100:
-                await asyncio.sleep(RECHARGE_INTERVAL)
-                self.battery_level = min(100.0, self.battery_level + BATTERY_RECHARGE_STEP)
-                print_log(self.jid.user, f"🔌 Recharging... Battery at {self.battery_level:.2f}%")
-
-            self.recharging = False
-            print_log(self.jid.user, f"🔋 Battery fully recharged: {self.battery_level:.2f}%")
+            if self.battery_level < BATTERY_LOW_THRESHOLD:
+                await self.recharge()
         else:
-            print_log(self.jid.user, f"🔋 Battery OK ({self.battery_level:.2f}%) — staying in the field.")
+            print_log(self.jid.user, f"⚠️ Unknown task execution call: {ontology} {field_info}")
+
+        return messages_to_send
+
+    async def recharge(self):
+        print_log(self.jid.user, "🔋 Battery low — returning to base...")
+        await asyncio.sleep(FLIGHT_TIME)
+        self.consume_battery(base_cost=5.0)
+        print_log(self.jid.user, "🔌 Recharging battery at base...")
+        self.recharging = True
+        while self.battery_level < 100:
+            await asyncio.sleep(RECHARGE_INTERVAL)
+            self.battery_level = min(100.0, self.battery_level + BATTERY_RECHARGE_STEP)
+            print_log(self.jid.user, f"🔌 Recharging... Battery at {self.battery_level:.2f}%")
+        self.recharging = False
+        print_log(self.jid.user, f"🔋 Battery fully recharged: {self.battery_level:.2f}%")
 
     def consume_battery(self, base_cost=5.0):
         usage = compute_battery_usage(base_cost, self.wind_speed)
@@ -121,6 +152,8 @@ class PayloadDroneAgent(Agent):
         print_log(self.jid.user, f"🔋 Battery after operation: {self.battery_level:.2f}% (used {usage:.2f}%)")
 
     async def setup(self):
+        await super().setup()
+        
         self.recharging = False
         self.wind_speed = random.uniform(WIND_MIN, WIND_MAX)
         self.battery_level = 100.0

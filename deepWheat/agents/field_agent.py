@@ -7,118 +7,154 @@ from utils.weather import get_current_weather
 from datetime import date
 from spade.behaviour import CyclicBehaviour
 from config import (
-    FIELD_AGENT_ASSIGNMENT,
     FIELD_ROWS,
     FIELD_COLS,
 )
-import time
 
 class FieldAgent(Agent):
+    def __init__(self, jid, password, field_id):
+        super().__init__(jid, password)
+        self.field_id = field_id
+        self.rows = FIELD_ROWS
+        self.cols = FIELD_COLS
+        self.memory = self.initialize_field_memory(field_id, self.rows, self.cols)
+        self.initialized_today = False  # Track if we've done initial setup today
+        
     def initialize_field_memory(self, field_id, rows, cols):
-        # Track per-plant status: disease, being_treated, last_fertilized
+        # Per-plant data + per-field fertilization date
         memory = {}
         for x in range(rows):
             for y in range(cols):
                 memory[(field_id, x, y)] = {
                     "diseased": False,
                     "being_treated": False,
-                    "last_fertilized_date": None
                 }
+        memory["last_fertilized_date"] = None
+        memory["last_init_date"] = None  # Track when we last did initialization
         return memory
 
     class FieldBehaviour(CyclicBehaviour):
         async def run(self):
             agent_name = self.agent.jid.user
-            print_agent_header(agent_name)
             field_id = self.agent.field_id
-            weather = get_current_weather()
-            humidity = weather["humidity"]
-            temperature = weather["temperature"]
-            wind_speed = weather["wind_speed"]
-
-            print_log(agent_name, f"🌡️ Weather @ {field_id}:")
-            print_log(agent_name, f"   Humidity: {humidity:.2f}%")
-            print_log(agent_name, f"   Temperature: {temperature:.2f}°C")
-            print_log(agent_name, f"   Wind Speed: {wind_speed:.2f} km/h")
-
             today = date.today()
 
-            # FERTILIZER LOGIC (one request per coordinate/day)
-            if is_growth_season(today):
-                for x in range(self.agent.rows):
-                    for y in range(self.agent.cols):
-                        mem = self.agent.memory[(field_id, x, y)]
-                        if mem["last_fertilized_date"] != today:
-                            print_log(agent_name, f"🌱 Fertilization needed @ {field_id} ({x},{y}) — sending request.")
-                            msg = Message(to="central@localhost")
-                            msg.set_metadata("performative", "request")
-                            msg.set_metadata("ontology", "fertilization_request")
-                            msg.body = f"{field_id}|{x},{y}|{wind_speed:.2f}"
-                            await self.send(msg)
-                            # Set immediately to prevent duplicate requests
-                            mem["last_fertilized_date"] = today
+            # Only do the full initialization once per day
+            if not self.agent.initialized_today or self.agent.memory.get("last_init_date") != today:
+                print_agent_header(agent_name)
+                weather = get_current_weather()
+                humidity = weather["humidity"]
+                temperature = weather["temperature"]
+                wind_speed = weather["wind_speed"]
 
-            # Wait for monitoring (simulate periodic check)
-            print_log(agent_name, "🕒 Sleeping 10s before next scan...\n")
-            await asyncio.sleep(100)
+                print_log(agent_name, f"🌡️ Daily Weather Report @ {field_id}:")
+                print_log(agent_name, f"   Humidity: {humidity:.2f}%")
+                print_log(agent_name, f"   Temperature: {temperature:.2f}°C")
+                print_log(agent_name, f"   Wind Speed: {wind_speed:.2f} km/h")
 
-            # Handle incoming messages
+                # FERTILIZATION CHECK - ONLY ONE request per field per day
+                if is_growth_season(today):
+                    if self.agent.memory["last_fertilized_date"] != today:
+                        print_log(agent_name, f"🌱 Growth season active - fertilization needed for {field_id}")
+                        msg = Message(to="central@localhost")
+                        msg.set_metadata("performative", "request")
+                        msg.set_metadata("ontology", "fertilization_request")
+                        msg.body = f"{field_id}|{wind_speed:.2f}"
+                        await self.send(msg)
+                        print_log(agent_name, f"📤 Fertilization request sent for {field_id}")
+                        # Don't update last_fertilized_date here - wait for completion
+                    else:
+                        print_log(agent_name, f"✅ {field_id} already fertilized today")
+                else:
+                    print_log(agent_name, f"❄️ Outside growth season - no fertilization needed")
+
+                # Mark as initialized for today
+                self.agent.initialized_today = True
+                self.agent.memory["last_init_date"] = today
+                print_log(agent_name, f"🎯 Daily initialization complete for {field_id}")
+
+            # Always handle incoming messages (disease alerts, completion notifications)
             msg = await self.receive(timeout=1)
-            while msg:
+            message_count = 0
+            while msg and message_count < 10:  # Limit to prevent infinite loops
+                message_count += 1
                 ontology = msg.metadata.get("ontology")
+                
                 if ontology == "disease_alert":
                     field, xy, disease = msg.body.split("|")
                     x, y = map(int, xy.split(","))
                     mem = self.agent.memory[(field, x, y)]
+                    
                     if mem["diseased"]:
                         if mem["being_treated"]:
-                            print_log(agent_name, f"❗ Already being treated: {field} ({x},{y}). Ignoring alert.")
+                            print_log(agent_name, f"❗ Already treating disease @ {field} ({x},{y}). Ignoring duplicate alert.")
                         else:
-                            print_log(agent_name, f"🚨 Disease found @ {field} ({x},{y}) again, requesting treatment.")
-                            self.request_treatment(field, x, y, disease)
+                            print_log(agent_name, f"🚨 Untreated disease @ {field} ({x},{y}) - requesting treatment")
+                            await self.request_treatment(field, x, y, disease)
                             mem["being_treated"] = True
                     else:
-                        print_log(agent_name, f"🦠 New disease @ {field} ({x},{y}). Requesting treatment.")
+                        print_log(agent_name, f"🦠 NEW disease detected @ {field} ({x},{y}): {disease}")
                         mem["diseased"] = True
-                        self.request_treatment(field, x, y, disease)
+                        await self.request_treatment(field, x, y, disease)
                         mem["being_treated"] = True
 
                 elif ontology == "treatment_assigned":
                     field, xy, _ = msg.body.split("|")
                     x, y = map(int, xy.split(","))
                     mem = self.agent.memory[(field, x, y)]
-                    print_log(agent_name, f"✅ Treatment assigned at {field} ({x},{y})")
+                    print_log(agent_name, f"✅ Treatment assigned for {field} ({x},{y})")
                     mem["being_treated"] = True
+                    
                 elif ontology == "treatment_complete":
                     field, xy, _ = msg.body.split("|")
                     x, y = map(int, xy.split(","))
                     mem = self.agent.memory[(field, x, y)]
-                    print_log(agent_name, f"🎉 Treatment complete at {field} ({x},{y})")
+                    print_log(agent_name, f"🎉 Treatment COMPLETE @ {field} ({x},{y}) - plant is healthy!")
                     mem["being_treated"] = False
                     mem["diseased"] = False
+                    
                 elif ontology == "fertilization_complete":
                     field, xy, _ = msg.body.split("|")
                     x, y = map(int, xy.split(","))
-                    mem = self.agent.memory[(field, x, y)]
-                    print_log(agent_name, f"🎉 Fertilization complete at {field} ({x},{y})")
-                    # Optionally, add a field here to mark as fertilized if you want to track it further.
+                    print_log(agent_name, f"🌱 Fertilization complete @ {field} ({x},{y})")
+                    
+                    # Update last fertilized date when we get first fertilization complete message
+                    if self.agent.memory["last_fertilized_date"] != today:
+                        self.agent.memory["last_fertilized_date"] = today
+                        print_log(agent_name, f"📅 Marking {field_id} as fertilized for {today}")
+                        
                 else:
-                    print_log(agent_name, f"⚠️ Unknown message: {ontology}")
-                msg = await self.receive(timeout=0.5)
+                    print_log(agent_name, f"⚠️ Unknown message ontology: {ontology}")
+                
+                # Get next message with shorter timeout
+                msg = await self.receive(timeout=0.1)
 
-        def request_treatment(self, field, x, y, disease):
+            # Reset daily initialization flag at midnight (simplified check)
+            current_date = date.today()
+            if self.agent.memory.get("last_init_date") != current_date:
+                self.agent.initialized_today = False
+
+            # Sleep before next cycle - shorter sleep for more responsive message handling
+            await asyncio.sleep(30)  # Check every 30 seconds instead of 10
+
+        async def request_treatment(self, field, x, y, disease):
+            """Send treatment request to central agent"""
             msg = Message(to="central@localhost")
             msg.set_metadata("performative", "request")
             msg.set_metadata("ontology", "treatment_request")
             msg.body = f"{field}|{x},{y}|{disease}"
-            asyncio.create_task(self.send(msg))
+            await self.send(msg)
+            print_log(self.agent.jid.user, f"📤 Treatment request sent for {field} ({x},{y}): {disease}")
 
     async def setup(self):
-        # Decide which field this agent manages
         agent_name = self.jid.user
-        self.field_id = FIELD_AGENT_ASSIGNMENT.get(agent_name, "field_1")
+        self.field_id = getattr(self, 'field_id', None)
         self.rows = FIELD_ROWS
         self.cols = FIELD_COLS
         self.memory = self.initialize_field_memory(self.field_id, self.rows, self.cols)
-        print_log(agent_name, f"🌿 FieldAgent {self.jid} is online and manages {self.field_id}.")
+        self.initialized_today = False
+        
+        print_log(agent_name, f"🌿 FieldAgent {self.jid} is online and managing {self.field_id}")
+        print_log(agent_name, f"📋 Managing {self.rows}x{self.cols} grid = {self.rows * self.cols} plants")
+        
         self.add_behaviour(self.FieldBehaviour())

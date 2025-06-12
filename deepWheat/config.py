@@ -38,8 +38,8 @@ DISEASED_PLANTS = {
 
 # Map agent JIDs to fields
 FIELD_AGENT_ASSIGNMENT = {
-    "field1@localhost": "field_1",
-    "field2@localhost": "field_2",
+    "field_1": "field1@localhost",
+    "field_2": "field2@localhost",
 }
 FIELD_AGENTS = [
     {"agent_jid": "field1@localhost", "field_id": "field_1"},
