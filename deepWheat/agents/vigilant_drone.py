@@ -4,6 +4,7 @@ from spade.agent import Agent
 from spade.behaviour import FSMBehaviour, State
 from spade.message import Message
 from spade.behaviour import CyclicBehaviour
+from offboard import OffboardControl
 from utils.battery import compute_battery_usage, drain_battery
 from utils.logger import print_log, print_agent_header
 from utils.field_map import shared_field_map

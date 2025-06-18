@@ -5,6 +5,7 @@ from agents.field_agent import FieldAgent
 from agents.payload_drone import PayloadDroneAgent
 from agents.central_agent import CentralAgent
 from config import FIELD_AGENTS
+from deepWheat.offboard.offboard_control.offboard_control import OffboardControl
 
 stop_event = threading.Event()
 
@@ -20,6 +21,10 @@ async def main():
         VigilantDroneAgent(f"vigilant{i}@localhost", "admin1234")
         for i in range(1, 3)  # creates vigilant1 and vigilant2
     ]
+    offboard_control = OffboardControl("offboard_control")
+    offboard_control.setDrone(drones[0], "Vigilant", [0, 0, -1.3])
+    offboard_control.setDrone(drones[1], "Vigilant", [0, 1, -1.3])
+
     payload_drones = [
         PayloadDroneAgent(f"payload{i}@localhost", "admin1234")
         for i in range(1, 4)  # creates payload1, payload2, and payload3
