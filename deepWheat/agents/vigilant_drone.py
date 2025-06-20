@@ -4,7 +4,6 @@ from spade.agent import Agent
 from spade.behaviour import FSMBehaviour, State
 from spade.message import Message
 from spade.behaviour import CyclicBehaviour
-from offboard import OffboardControl
 from utils.battery import compute_battery_usage, drain_battery
 from utils.logger import print_log, print_agent_header
 from utils.field_map import shared_field_map
@@ -17,6 +16,8 @@ from config import (
     WIND_MAX,
     FIELD_AGENTS
 )
+from offboard import routing_service, field_plant_location_loader
+from offboard.offboard_control import OffboardControl
 
 def field_id_to_agent(field_id):
     # Looks up the correct agent for a field
@@ -26,6 +27,10 @@ def field_id_to_agent(field_id):
     return None
 
 class VigilantDroneAgent(Agent):
+    def __init__(self, jid, password, ros_node):
+        super().__init__(jid, password)
+        self.ros_node = ros_node
+
     class VigilantFSM(FSMBehaviour):
         async def on_start(self):
             print_agent_header(self.agent.jid.user)
@@ -85,6 +90,13 @@ class VigilantDroneAgent(Agent):
 
     class NavigateToField(State):
         async def run(self):
+            
+            self.target_waypoints = field_plant_location_loader.return_plant_locations_by_field("field1")
+            self.target_waypoints.insert(0, [0.0, 0.0, -1.3])
+            self.target_waypoints = routing_service.find_shortest_path(self.target_waypoints)
+            self.agent.offboard_control.scan(self.target_waypoints)
+
+
             field_id = self.get("target_field")
             print_log(self.agent.jid.user, f"🧭 Navigating to field: {field_id}")
             await asyncio.sleep(FLIGHT_TIME)
@@ -191,3 +203,4 @@ class VigilantDroneAgent(Agent):
         fsm = self.create_fsm()
         self.add_behaviour(fsm)
         self.add_behaviour(self.NegotiationBehaviour())
+        self.offboard_control = OffboardControl(self.ros_node, "2")

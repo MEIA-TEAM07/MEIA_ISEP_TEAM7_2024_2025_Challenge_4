@@ -7,4 +7,9 @@ babel>=2.3
 sortedcontainers
 dnspython<3.0
 slixmpp==1.9.1
-
+pillow
+numpy
+keras
+tensorflow>=2.10.0
+requests
+termcolor
