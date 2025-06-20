@@ -92,7 +92,7 @@ class VigilantDroneAgent(Agent):
         async def run(self):
             
             self.target_waypoints = field_plant_location_loader.return_plant_locations_by_field("field1")
-            self.target_waypoints.insert(0, [0.0, 0.0, -1.3])
+            self.target_waypoints.insert(0, [0.0, 0.0, -5.0])
             self.target_waypoints = routing_service.find_shortest_path(self.target_waypoints)
             self.agent.offboard_control.scan(self.target_waypoints)
 
@@ -110,37 +110,35 @@ class VigilantDroneAgent(Agent):
     class ScanField(State):
         async def run(self):
             field_id = self.get("target_field")
-            print_log(self.agent.jid.user, f"🔍 Scanning field: {field_id}")
-            detected = False
-            # Get dimensions dynamically
-            rows, cols = shared_field_map.rows, shared_field_map.cols
 
-            for x in range(rows):
-                for y in range(cols):
+            msg = await self.receive(timeout=5)
+            if msg:
+                performative = msg.metadata.get("performative")
+                ontology = msg.metadata.get("ontology")
+                if performative == "inform" and ontology == "disease_alert":
+                    body= msg.body
+                    disease, x_str, y_str = body.split(", ")
+                    x = float(x_str)
+                    y = float(y_str)
                     pos = (x, y)
-                    await asyncio.sleep(FLIGHT_TIME)  # Simulate drone movement
-
-                    plant = shared_field_map.get_plant(field_id, pos)  # Fixed parameter order
+                    plant = shared_field_map.get_plant(field_id, pos)
                     status = plant["status"] if plant else "unknown"
                     being_treated = plant["being_treated"] if plant else False
+                # Report if there's a disease and it's not already being treated
+                
+                if not being_treated:
+                    field_agent_jid = field_id_to_agent(field_id)
+                    status = disease
+                    if field_agent_jid:
+                        print_log(self.agent.jid.user, f"🦠 Disease ({status}) detected at {field_id} {pos} — reporting to {field_agent_jid}")
+                        msg = Message(to=field_agent_jid)
+                        msg.set_metadata("performative", "inform")
+                        msg.set_metadata("ontology", "disease_alert")
+                        msg.body = f"{field_id}|{x},{y}|{status}"
+                        await self.send(msg)
+                    detected = True
 
-                    log_str = f"👁️  Scanning {field_id}@{pos}: Status={status}, Treated={being_treated}"
-                    print_log(self.agent.jid.user, log_str)
-
-                    # Report if there's a disease and it's not already being treated
-                    if status not in ("healthy", "unknown") and not being_treated:
-                        field_agent_jid = field_id_to_agent(field_id)
-                        if field_agent_jid:
-                            print_log(self.agent.jid.user, f"🦠 Disease ({status}) detected at {field_id} {pos} — reporting to {field_agent_jid}")
-                            msg = Message(to=field_agent_jid)
-                            msg.set_metadata("performative", "inform")
-                            msg.set_metadata("ontology", "disease_alert")
-                            msg.body = f"{field_id}|{x},{y}|{status}"
-                            await self.send(msg)
-                        detected = True
-
-            self.set("disease_found", detected)
-            self.set_next_state("REPORT")
+            self.set_next_state("SCAN")
 
     class ReportFinding(State):
         async def run(self):
@@ -203,4 +201,4 @@ class VigilantDroneAgent(Agent):
         fsm = self.create_fsm()
         self.add_behaviour(fsm)
         self.add_behaviour(self.NegotiationBehaviour())
-        self.offboard_control = OffboardControl(self.ros_node, "2")
+        self.offboard_control = OffboardControl(self.ros_node, "1", self.agent)

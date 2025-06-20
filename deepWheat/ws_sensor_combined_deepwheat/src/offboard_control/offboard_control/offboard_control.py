@@ -15,59 +15,56 @@ from . import routing_service
 from . import field_plant_location_loader
 
 class OffboardControl(Node):
-    def __init__(self, node_name: str):
-        super().__init__(node_name)
+    def __init__(self):
+        super().__init__('offboard_control_node')
 
-    def setDrone(self, drone, drone_id, init_pos): 
+        print("----Starting OffboardControl Node...")
 
-        # States
+        # State
+        self.image_counter = 0
+        self.bridge = CvBridge()
+        self.latest_image = None
+
+        self.target_waypoints = field_plant_location_loader.return_plant_locations_by_field("field1")
+
+        self.target_waypoints.insert(0, [0.0, 0.0, -1.3])
+
+        self.target_waypoints = routing_service.find_shortest_path(self.target_waypoints)
+
+        self.get_logger()
+
         self.count = 0
         self.waypoint_counter = 0
         self.mode_set = False
         self.armed = False
         self.altitude_reached = False
+        self.unlocked = False
         self.waypoint_reached = False
         self.current_waypoint_index = 0
 
-        # Publishers
-        self.offboard_pub = self.create_publisher(OffboardControlMode, f'/px4_{drone_id}/fmu/in/offboard_control_mode', 10)
-        self.setpoint_pub = self.create_publisher(TrajectorySetpoint, f'/px4_{drone_id}/fmu/in/trajectory_setpoint', 10)
-        self.command_pub = self.create_publisher(VehicleCommand, f'/px4_{drone_id}/fmu/in/vehicle_command', 10)
-
-        # QoS Profile
         qos = QoSProfile(depth=10)
         qos.reliability = ReliabilityPolicy.BEST_EFFORT
 
+        self.gimbal_pointed = False
+
+        # Position tracking
+        self.current_x = 0.0
+        self.current_y = 0.0
+        self.current_z = 100.0
+
+        # Publishers
+        self.offboard_pub = self.create_publisher(OffboardControlMode, '/fmu/in/offboard_control_mode', 10)
+        self.setpoint_pub = self.create_publisher(TrajectorySetpoint, '/fmu/in/trajectory_setpoint', 10)
+        self.command_pub = self.create_publisher(VehicleCommand, '/fmu/in/vehicle_command', 10)
+        self.gimbal_pitch_pub = self.create_publisher(Float64,'/model/x500_gimbal_0/command/gimbal_pitch', 10)
+
         # Subscribers
-        self.position_sub = self.create_subscription(VehicleLocalPosition, f'px4_{drone_id}/fmu/out/vehicle_local_position',self.position_callback, qos)
+        self.position_sub = self.create_subscription(VehicleLocalPosition, '/fmu/out/vehicle_local_position',self.position_callback, qos)
+        self.image_sub = self.create_subscription(Image, '/world/default/model/x500_gimbal_0/link/camera_link/sensor/camera/image',self._image_cb, qos)
 
-        # Initialize position
-        self.current_x, self.current_y, self.current_z = init_pos
-
-        if drone == "Vigilant":
-            # Publisher
-            self.gimbal_pitch_pub = self.create_publisher(Float64,f'/model/x500_gimbal_0/command/gimbal_pitch', 10)
-            # Subscriber
-            self.image_sub = self.create_subscription(Image, '/world/default/model/x500_gimbal_0/link/camera_link/sensor/camera/image',self._image_cb, qos)
-            # State
-            self.unlocked = False
-            self.image_counter = 0
-            self.bridge = CvBridge()
-            self.latest_image = None
-            self.gimbal_pointed = False
-            # Timers
-            self.timer = self.create_timer(0.1, self.timer_callback_gimbal)
-            self.log_timer = self.create_timer(1.0, self.log_position_callback)
-        else:
-            # Timers
-            self.timer = self.create_timer(0.1, self.timer_callback)
-            self.log_timer = self.create_timer(1.0, self.log_position_callback)
-
-    def setField(self, field):
-        self.target_waypoints = field_plant_location_loader.return_plant_locations_by_field(field)
-        self.target_waypoints.insert(0, [self.current_x, self.current_y, -1.3])
-        self.target_waypoints = routing_service.find_shortest_path(self.target_waypoints)
-
+        # Timers
+        self.timer = self.create_timer(0.1, self.timer_callback)
+        self.log_timer = self.create_timer(1.0, self.log_position_callback)
 
     def position_callback(self, msg):
         self.current_x = msg.x
@@ -80,33 +77,6 @@ class OffboardControl(Node):
         )
 
     def timer_callback(self):
-        t = self.get_clock().now().nanoseconds
-        if self.current_waypoint_index >= len(self.target_waypoints) - 1:
-            self.completed_position_publishing(t)
-            return
-                
-        self.waypoint_counter += 1
-
-        # Send trajectory setpoint
-        sp = TrajectorySetpoint()
-        sp.timestamp = t
-        sp.position = self.target_waypoints[self.current_waypoint_index]
-        sp.yaw = 0.0
-        self.setpoint_pub.publish(sp)
-
-        self.publish_off_board_mode(t)
-
-        # Arm and switch to offboard
-        if self.count == 10 and not self.armed:
-            self.arm()
-            self.armed = True
-        if self.count == 15 and not self.mode_set:
-            self.set_offboard_mode()
-            self.mode_set = True
-
-        self.count += 1
-
-    def timer_callback_gimbal(self):
         t = self.get_clock().now().nanoseconds
         if self.current_waypoint_index >= len(self.target_waypoints) - 1:
             self.completed_position_publishing(t)
@@ -157,7 +127,7 @@ class OffboardControl(Node):
         self.count += 1
 
         if self.count % 100 == 0:
-            self.process_image()             
+            self.process_image()
 
     def arm(self):
         msg = VehicleCommand()
@@ -175,7 +145,7 @@ class OffboardControl(Node):
     def set_offboard_mode(self):
         msg = VehicleCommand()
         msg.timestamp = self.get_clock().now().nanoseconds
-        msg.param1 = 1.0  # custom mode
+        msg.param1 = 1.0  # custom <
         msg.param2 = 6.0  # PX4 Offboard mode ID
         msg.command = VehicleCommand.VEHICLE_CMD_DO_SET_MODE
         msg.target_system = 1
@@ -186,7 +156,7 @@ class OffboardControl(Node):
         self.command_pub.publish(msg)
         self.get_logger().info('Offboard mode command sent')
 
-    def publish_off_board_mode(t, self):
+    def publish_off_board_mode(self, t):
         offboard = OffboardControlMode()
         offboard.timestamp = t
         offboard.position = True
@@ -235,3 +205,14 @@ class OffboardControl(Node):
         offboard.position = True
         self.offboard_pub.publish(offboard)
         return
+
+
+def main():
+    rclpy.init()
+    node = OffboardControl()
+    rclpy.spin(node)
+    node.destroy_node()
+    rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()

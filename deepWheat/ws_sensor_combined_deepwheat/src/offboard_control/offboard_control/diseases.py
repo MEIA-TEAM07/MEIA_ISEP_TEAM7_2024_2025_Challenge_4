@@ -1,0 +1,5 @@
+BROWN_RUST = "Brown Rust"
+YELLOW_RUST = "Yellow Rust"
+SEPTORIA = "Septoria"
+MILDEW = "Mildew"
+HEALTHY = "Healthy"

@@ -1,2 +1,4 @@
 spade_env
 .venv
+.ws_sensor_combined_deepwheat
+.vscode

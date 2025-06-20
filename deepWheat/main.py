@@ -1,11 +1,13 @@
-import asyncio
 import threading
+import asyncio
+import time
+import rclpy
+from rclpy.node import Node
 from agents.vigilant_drone import VigilantDroneAgent
 from agents.field_agent import FieldAgent
 from agents.payload_drone import PayloadDroneAgent
 from agents.central_agent import CentralAgent
 from config import FIELD_AGENTS
-from deepWheat.offboard.offboard_control.offboard_control import OffboardControl
 
 stop_event = threading.Event()
 
@@ -16,14 +18,36 @@ def wait_for_q():
             stop_event.set()
             break
 
+# === Minimal ROS Node defined directly here ===
+class MinimalRosNode(Node):
+    def __init__(self):
+        super().__init__('minimal_ros_node')
+        self.get_logger().info('Minimal ROS node started.')
+
+# === Threaded ROS Node Runner ===
+class ROSNodeThread(threading.Thread):
+    def __init__(self):
+        super().__init__()
+        self.node = None
+
+    def run(self):
+        rclpy.init()
+        self.node = MinimalRosNode()
+        rclpy.spin(self.node)
+        self.node.destroy_node()
+        rclpy.shutdown()
+
 async def main():
+    ros_thread = ROSNodeThread()
+    ros_thread.start()
+
+    while ros_thread.node is None:
+        time.sleep(0.1)  # Wait until node is created
+
     drones = [
-        VigilantDroneAgent(f"vigilant{i}@localhost", "admin1234")
-        for i in range(1, 3)  # creates vigilant1 and vigilant2
+        VigilantDroneAgent(f"vigilant{i}@localhost", "admin1234", ros_thread.node)
+        for i in range(1, 2)  # creates vigilant1 and vigilant2
     ]
-    offboard_control = OffboardControl("offboard_control")
-    offboard_control.setDrone(drones[0], "Vigilant", [0, 0, -1.3])
-    offboard_control.setDrone(drones[1], "Vigilant", [0, 1, -1.3])
 
     payload_drones = [
         PayloadDroneAgent(f"payload{i}@localhost", "admin1234")

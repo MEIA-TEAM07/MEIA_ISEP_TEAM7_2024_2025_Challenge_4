@@ -10,15 +10,18 @@ from sensor_msgs.msg import Image
 from cv_bridge import CvBridge, CvBridgeError
 from rclpy.qos import QoSProfile, ReliabilityPolicy
 from offboard import disease_classification_service
+from spade.message import Message
+from spade.agent import Agent
 
 
 class OffboardControl:
-    def __init__(self, node: Node, drone_id, agent = None):
+    def __init__(self, node: Node, drone_id, agent: Agent):
 
         print("Using drone_id:", drone_id)
         print("Publishing to:", f'/px4_{drone_id}/fmu/in/vehicle_command')
 
         self.node = node
+        self.agent = agent
 
         # State
         self.image_counter = 0
@@ -110,10 +113,10 @@ class OffboardControl:
 
         if self.count == 0 and not self.armed:
             self.arm(t)
-            self.armed = False
+            self.armed = True
         if self.count == 15 and not self.mode_set:
             self.set_offboard_mode(t)
-            self.mode_set = False
+            self.mode_set = True
 
         if self.mode_set and not self.gimbal_pointed:
             self.set_gimbal_pos()
@@ -128,7 +131,7 @@ class OffboardControl:
         msg.timestamp = t
         msg.param1 = 1.0
         msg.command = VehicleCommand.VEHICLE_CMD_COMPONENT_ARM_DISARM
-        msg.target_system = 1
+        msg.target_system = 2
         msg.target_component = 1
         msg.source_system = 1
         msg.source_component = 1
@@ -143,7 +146,7 @@ class OffboardControl:
         msg.param1 = 1.0
         msg.param2 = 6.0
         msg.command = VehicleCommand.VEHICLE_CMD_DO_SET_MODE
-        msg.target_system = 1
+        msg.target_system = 2
         msg.target_component = 1
         msg.source_system = 1
         msg.source_component = 1
@@ -164,7 +167,7 @@ class OffboardControl:
         except CvBridgeError as e:
             self.get_logger().error(f'CV bridge error: {e}')
 
-    def process_image(self):
+    async def process_image(self):
         if self.current_waypoint_index == 0:
             return
 
@@ -183,7 +186,17 @@ class OffboardControl:
         # 2) Classify the cropped center
         label = disease_classification_service.classify_from_array(cropped)
         print(f'Predicted disease: {label}')
+
+        if label != 'healthy':
+            msg = Message(to=self.agent.jid)
+            msg.set_metadata("performative", "inform")
+            msg.set_metadata("ontology", "disease_alert")
+            msg.body = f"{label}, {self.target_waypoints[self.current_waypoint_index][0]}, {self.target_waypoints[self.current_waypoint_index][1]}"
+            await self.send(msg)
+
         self.unlocked = True
+
+
         
     def set_gimbal_pos(self):
         print("Tried gimball")
