@@ -14,7 +14,7 @@ class FieldAgent(Agent):
     def __init__(self, jid, password, field_id):
         super().__init__(jid, password)
         self.field_id = field_id
-        self.memory = self.initialize_field_memory(field_id)
+        self.memory = self.initialize_field_memory()
         self.initialized_today = False  # Track if we've done initial setup today
         
     def initialize_field_memory(self):
@@ -182,7 +182,7 @@ class FieldAgent(Agent):
         self.field_id = getattr(self, 'field_id', None)
         self.rows = FIELD_ROWS
         self.cols = FIELD_COLS
-        self.memory = self.initialize_field_memory(self.field_id, self.rows, self.cols)
+        self.memory = self.initialize_field_memory()
         self.initialized_today = False
         
         print_log(agent_name, f"🌿 FieldAgent {self.jid} is online and managing {self.field_id}")
