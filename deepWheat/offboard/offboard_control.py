@@ -12,16 +12,19 @@ from rclpy.qos import QoSProfile, ReliabilityPolicy
 from offboard import disease_classification_service
 from spade.message import Message
 from spade.agent import Agent
+import asyncio
+from spade.behaviour import FSMBehaviour
 
 
 class OffboardControl:
-    def __init__(self, node: Node, drone_id, agent: Agent):
+    def __init__(self, node: Node, drone_id, agent_jid, behaviour: FSMBehaviour):
 
         print("Using drone_id:", drone_id)
         print("Publishing to:", f'/px4_{drone_id}/fmu/in/vehicle_command')
 
         self.node = node
-        self.agent = agent
+        self.agent_jid = agent_jid
+        self.behaviour = behaviour
 
         # State
         self.image_counter = 0
@@ -30,6 +33,8 @@ class OffboardControl:
         qos = QoSProfile(depth=10)
         qos.reliability = ReliabilityPolicy.BEST_EFFORT
 
+
+        self.nothing_to_do = True
         self.count = 0
         self.waypoint_counter = 0
         self.mode_set = False
@@ -44,7 +49,6 @@ class OffboardControl:
         self.current_x = 0.0
         self.current_y = 0.0
         self.current_z = 100.0
-        
 
         # Publishers
         self.offboard_pub = node.create_publisher(OffboardControlMode, f'/px4_'+drone_id+'/fmu/in/offboard_control_mode', 10)
@@ -52,16 +56,12 @@ class OffboardControl:
         self.command_pub = node.create_publisher(VehicleCommand, f'/px4_'+drone_id+'/fmu/in/vehicle_command', 10)
         self.gimbal_pitch_pub = node.create_publisher(Float64, f'/model/x500_gimbal_'+drone_id+'/command/gimbal_pitch', 10)
 
-        # self.offboard_pub = node.create_publisher(OffboardControlMode, '/fmu/in/offboard_control_mode', 10)
-        # self.setpoint_pub = node.create_publisher(TrajectorySetpoint, '/fmu/in/trajectory_setpoint', 10)
-        # self.command_pub = node.create_publisher(VehicleCommand, '/fmu/in/vehicle_command', 10)
-        # self.gimbal_pitch_pub = node.create_publisher(Float64, f'/model/x500_gimbal_0/command/gimbal_pitch', 10)
-
         # Subscribers
-        # self.position_sub = node.create_subscription(VehicleLocalPosition, '/fmu/out/vehicle_local_position',self.position_callback, qos)
-        # self.image_sub = node.create_subscription(Image, f'/world/default/model/x500_gimbal_0/link/camera_link/sensor/camera/image',self._image_cb, qos)
         self.position_sub = node.create_subscription(VehicleLocalPosition, '/px4_'+drone_id+'/fmu/out/vehicle_local_position',self.position_callback, qos)
-        self.image_sub = node.create_subscription(Image, f'/world/default/model/x500_gimbal_1/link/camera_link/sensor/camera/image',self._image_cb, qos)
+        self.image_sub = node.create_subscription(Image, f'/world/default/model/x500_gimbal_'+drone_id+'/link/camera_link/sensor/camera/image',self._image_cb, qos)
+
+    def set_loop(self, loop):
+        self.loop = loop
 
     def position_callback(self, msg):
         self.current_x = msg.x
@@ -70,15 +70,17 @@ class OffboardControl:
 
     def scan(self, waypoints):
         self.target_waypoints = waypoints
+        self.current_waypoint_index = 0
         print(waypoints)
 
         if(self.first_scan):
             self.scan_timer = self.node.create_timer(0.1, self.scan_callback)
+        self.nothing_to_do = False
 
     def scan_callback(self):
         t = self.node.get_clock().now().nanoseconds
 
-        if self.current_waypoint_index >= len(self.target_waypoints) - 1:
+        if self.nothing_to_do == True or self.current_waypoint_index >= len(self.target_waypoints) - 1:
             self.completed_position_publishing(t)
             return
             
@@ -124,7 +126,7 @@ class OffboardControl:
         self.count += 1
 
         if self.count % 100 == 0:
-            self.process_image()
+            asyncio.run_coroutine_threadsafe(self.process_image(), self.loop)
 
     def arm(self, t):
         msg = VehicleCommand()
@@ -174,7 +176,7 @@ class OffboardControl:
         if self.latest_image is None:
             print('No image')
             return
-
+        # if self.unlocked == False:
         img = self.latest_image
         h, w = img.shape[:2]
         top    = int(0.3 * h)
@@ -186,16 +188,20 @@ class OffboardControl:
         # 2) Classify the cropped center
         label = disease_classification_service.classify_from_array(cropped)
         print(f'Predicted disease: {label}')
+        self.unlocked = True        
 
-        if label != 'healthy':
-            msg = Message(to=self.agent.jid)
-            msg.set_metadata("performative", "inform")
-            msg.set_metadata("ontology", "disease_alert")
-            msg.body = f"{label}, {self.target_waypoints[self.current_waypoint_index][0]}, {self.target_waypoints[self.current_waypoint_index][1]}"
-            await self.send(msg)
-
-        self.unlocked = True
-
+        try:
+            if label != 'Healthy':
+                print("Sending disease alert to agent:", self.agent_jid)
+                print(self.behaviour)
+                msg = Message(to=str(self.agent_jid))
+                msg.set_metadata("performative", "inform")
+                msg.set_metadata("ontology", "disease_alert")
+                msg.body = f"{label}, {self.target_waypoints[self.current_waypoint_index][0]}, {self.target_waypoints[self.current_waypoint_index][1]}"
+                await self.behaviour.send(msg)
+                print("Disease alert sent to agent:", self.agent_jid)
+        except Exception as e:
+            print(f"Error sending message to agent: {e}")
 
         
     def set_gimbal_pos(self):
@@ -207,6 +213,16 @@ class OffboardControl:
         self.gimbal_pointed = True
 
     def completed_position_publishing(self, t):
+        if self.nothing_to_do == False:
+            self.target_waypoints = []
+            self.current_waypoint_index = 0
+            msg = Message(to=str(self.agent_jid))
+            msg.set_metadata("performative", "inform")
+            msg.set_metadata("ontology", "completed_scan")
+            msg.body = "Completed"
+            asyncio.run_coroutine_threadsafe(self.behaviour.send(msg), self.loop)
+
+        self.nothing_to_do = True
         offboard = OffboardControlMode()
         offboard.timestamp = t
         offboard.position = True

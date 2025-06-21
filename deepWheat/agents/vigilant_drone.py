@@ -16,8 +16,9 @@ from config import (
     WIND_MAX,
     FIELD_AGENTS
 )
-from offboard import routing_service, field_plant_location_loader
+from offboard import routing_service
 from offboard.offboard_control import OffboardControl
+from spade.template import Template
 
 def field_id_to_agent(field_id):
     # Looks up the correct agent for a field
@@ -27,9 +28,10 @@ def field_id_to_agent(field_id):
     return None
 
 class VigilantDroneAgent(Agent):
-    def __init__(self, jid, password, ros_node):
+    def __init__(self, jid, password, ros_node, id):
         super().__init__(jid, password)
         self.ros_node = ros_node
+        self.id = id
 
     class VigilantFSM(FSMBehaviour):
         async def on_start(self):
@@ -50,6 +52,9 @@ class VigilantDroneAgent(Agent):
                     if self.agent.recharging:
                         print_log(self.agent.jid.user, f"🔌 Currently recharging — ignoring CFP.")
                         return
+                    if self.agent.fsm.current_state != "IDLE":
+                        print_log(self.agent.jid.user, f"🚁 Not in IDLE state — ignoring CFP.")
+                        return
                     field_id = msg.body
                     proposal = Message(to="central@localhost")
                     proposal.set_metadata("performative", "proposal")
@@ -59,8 +64,12 @@ class VigilantDroneAgent(Agent):
                     
                 elif performative == "accept_proposal":
                     field_id = msg.body
-                    fsm = self.agent.create_fsm(field_id)
+                    fsm = self.agent.create_fsm()
                     self.agent.add_behaviour(fsm)
+                    print(msg)
+                    field_id, _ = msg.body.split("|")
+                    self.agent.target_field = field_id
+                    print(f"🔍 Target field set to: {self.agent.target_field}")
                     print_log(self.agent.jid.user, "🔥 Proposal accepted.")
                     
                 elif performative == "reject_proposal":
@@ -69,21 +78,19 @@ class VigilantDroneAgent(Agent):
                 # Handle registration acknowledgments
                 elif performative == "confirm" and ontology == "registration_ack":
                     print_log(self.agent.jid.user, f"✅ Registration confirmed: {msg.body}")
+                else:
+                    try:
+                        print(msg)
+                        field_id, _ = msg.body.split("|")
+                        self.agent.target_field = field_id
+                        print(f"🔍 Target field set to: {self.agent.target_field}")
+                    except Exception as e:
+                        print_log(self.agent.jid.user, f"⚠️ Invalid message format. {e}")
+                        return
 
     class Idle(State):
         async def run(self):
-            print_log(self.agent.jid.user, "🕒 IDLE: Waiting for monitoring request...")
-            msg = await self.receive(timeout=10)
-            if msg:
-                try:
-                    field_id, wind_str = msg.body.split("|")
-                    self.set("target_field", field_id)
-                    self.wind_speed = float(wind_str)
-                    print_log(self.agent.jid.user, f"🌬️ Wind updated from field: {self.wind_speed:.2f} km/h")
-                except ValueError:
-                    print_log(self.agent.jid.user, "⚠️ Invalid message format.")
-                    self.set_next_state("IDLE")
-                    return
+            if self.agent.target_field:
                 self.set_next_state("NAVIGATE")
             else:
                 self.set_next_state("IDLE")
@@ -91,14 +98,14 @@ class VigilantDroneAgent(Agent):
     class NavigateToField(State):
         async def run(self):
             
-            self.target_waypoints = field_plant_location_loader.return_plant_locations_by_field("field1")
-            self.target_waypoints.insert(0, [0.0, 0.0, -5.0])
+            field_id = self.agent.target_field
+            print(field_id)
+            self.target_waypoints = shared_field_map.return_plant_locations_by_field(field_id)
+            self.target_waypoints.insert(0, [0.0, 0.0, -1.3])
             self.target_waypoints = routing_service.find_shortest_path(self.target_waypoints)
             self.agent.offboard_control.scan(self.target_waypoints)
-
-
-            field_id = self.get("target_field")
-            print_log(self.agent.jid.user, f"🧭 Navigating to field: {field_id}")
+            print_log(self.agent.jid.user, f" Navigating to field: {field_id}")
+            
             await asyncio.sleep(FLIGHT_TIME)
             self.agent.consume_battery(base_cost=5.0)
             if self.agent.battery_level < BATTERY_LOW_THRESHOLD:
@@ -109,10 +116,10 @@ class VigilantDroneAgent(Agent):
 
     class ScanField(State):
         async def run(self):
-            field_id = self.get("target_field")
-
-            msg = await self.receive(timeout=5)
+            field_id = self.agent.target_field
+            msg = await self.receive()
             if msg:
+                print(msg)
                 performative = msg.metadata.get("performative")
                 ontology = msg.metadata.get("ontology")
                 if performative == "inform" and ontology == "disease_alert":
@@ -124,45 +131,37 @@ class VigilantDroneAgent(Agent):
                     plant = shared_field_map.get_plant(field_id, pos)
                     status = plant["status"] if plant else "unknown"
                     being_treated = plant["being_treated"] if plant else False
+                    try:
+                        if status in ("healthy", "unknown") and not being_treated:
+                            field_agent_jid = field_id_to_agent(field_id)
+                            status = disease
+                            if field_agent_jid:
+                                print_log(self.agent.jid.user, f"🦠 Disease ({status}) detected at {field_id} {pos} — reporting to {field_agent_jid}")
+                                msg = Message(to=field_agent_jid)
+                                msg.set_metadata("performative", "inform")
+                                msg.set_metadata("ontology", "disease_alert")
+                                msg.body = f"{field_id}|{x},{y}|{status}"
+                                print(msg)
+                                await self.send(msg)
+                    except Exception as e:
+                        print_log(self.agent.jid.user, f"❗ Error reporting disease: {e}")
+
+                elif performative == "inform" and ontology == "completed_scan":
+                    print_log(self.agent.jid.user, "✅ Scan completed successfully.")
+                    self.set_next_state("REPORT")
+
                 # Report if there's a disease and it's not already being treated
-                
-                if not being_treated:
-                    field_agent_jid = field_id_to_agent(field_id)
-                    status = disease
-                    if field_agent_jid:
-                        print_log(self.agent.jid.user, f"🦠 Disease ({status}) detected at {field_id} {pos} — reporting to {field_agent_jid}")
-                        msg = Message(to=field_agent_jid)
-                        msg.set_metadata("performative", "inform")
-                        msg.set_metadata("ontology", "disease_alert")
-                        msg.body = f"{field_id}|{x},{y}|{status}"
-                        await self.send(msg)
-                    detected = True
+             
 
             self.set_next_state("SCAN")
 
     class ReportFinding(State):
         async def run(self):
-            if self.get("disease_found"):
-                print_log(self.agent.jid.user, "🦠 At least one disease reported to FieldAgent.")
-            else:
-                print_log(self.agent.jid.user, "✅ No disease detected.")
             self.set_next_state("RETURN")
 
     class ReturnToBase(State):
         async def run(self):
-            print_log(self.agent.jid.user, "🔋 Returning to base...")
-            await asyncio.sleep(FLIGHT_TIME)
-            if self.agent.battery_level < BATTERY_LOW_THRESHOLD:
-                print_log(self.agent.jid.user, "⚡ Low battery detected. Starting recharge...")
-                self.agent.recharging = True
-                while self.agent.battery_level < 100:
-                    await asyncio.sleep(RECHARGE_INTERVAL)
-                    self.agent.battery_level = min(100.0, self.agent.battery_level + BATTERY_RECHARGE_STEP)
-                    print_log(self.agent.jid.user, f"🔌 Recharging... Battery at {self.agent.battery_level:.2f}%")
-                self.agent.recharging = False
-                print_log(self.agent.jid.user, "✅ Recharge complete. Drone is ready.")
-            else:
-                print_log(self.agent.jid.user, f"🔋 Battery is at {self.agent.battery_level:.2f}% — no recharge needed.")
+            print_log(f"{self.agent.jid.user}", "🔙 Returning to base...")
             self.set_next_state("IDLE")
 
     def consume_battery(self, base_cost=5.0):
@@ -170,7 +169,7 @@ class VigilantDroneAgent(Agent):
         self.battery_level = drain_battery(self.battery_level, usage)
         print_log(self.jid.user, f"🔋 Battery after flying: {self.battery_level:.2f}% (used {usage:.2f}%)")
     
-    def create_fsm(self, field_id=None):
+    def create_fsm(self):
         fsm = self.VigilantFSM()
         fsm.agent = self
         fsm.add_state(name="IDLE", state=self.Idle(), initial=True)
@@ -180,25 +179,39 @@ class VigilantDroneAgent(Agent):
         fsm.add_state(name="RETURN", state=self.ReturnToBase())
         fsm.add_transition("IDLE", "NAVIGATE")
         fsm.add_transition("NAVIGATE", "SCAN")
+        fsm.add_transition("SCAN", "SCAN")
         fsm.add_transition("SCAN", "REPORT")
         fsm.add_transition("REPORT", "RETURN")
         fsm.add_transition("RETURN", "IDLE")
         fsm.add_transition("IDLE", "IDLE")
-        if field_id:
-            fsm.set("target_field", field_id)
+
         return fsm
 
     async def setup(self):
         await super().setup()
-        
-        self.recharging = False
-        self.wind_speed = random.uniform(WIND_MIN, WIND_MAX)
-        self.battery_level = 100.0
-        print(f"🌬️ Wind Speed: {self.wind_speed:.2f} km/h")
-        print(f"🔋 Initial Battery: {self.battery_level}%")
-        print(f"🚁 VigilantDroneAgent {self.jid} is online.")
-        
-        fsm = self.create_fsm()
-        self.add_behaviour(fsm)
-        self.add_behaviour(self.NegotiationBehaviour())
-        self.offboard_control = OffboardControl(self.ros_node, "1", self.agent)
+        try:
+            self.tmpl = Template()
+            self.tmpl.sender = str(self.jid)
+            self.tmpl.metadata = {
+                "performative": "inform",
+                "ontology": "disease_alert"
+            }
+            self.tmpl2 = Template()
+            self.tmpl2.sender = "central@localhost"
+            
+            self.recharging = False
+            self.wind_speed = random.uniform(WIND_MIN, WIND_MAX)
+            self.battery_level = 100.0
+            print(f"🌬️ Wind Speed: {self.wind_speed:.2f} km/h")
+            print(f"🔋 Initial Battery: {self.battery_level}%")
+            print(f"🚁 VigilantDroneAgent {self.jid} is online.")
+            
+            self.fsm = self.create_fsm()
+            self.add_behaviour(self.fsm, self.tmpl)
+            self.add_behaviour(self.NegotiationBehaviour(), self.tmpl2)
+            self.offboard_control = OffboardControl(self.ros_node, str(self.id), self.jid, self.fsm)
+            self.loop = asyncio.get_event_loop()
+            self.offboard_control.set_loop(self.loop)
+            self.target_field = None
+        except Exception as e:
+            print(f"❗ Error during setup: {e}")

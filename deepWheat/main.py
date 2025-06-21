@@ -45,7 +45,7 @@ async def main():
         time.sleep(0.1)  # Wait until node is created
 
     drones = [
-        VigilantDroneAgent(f"vigilant{i}@localhost", "admin1234", ros_thread.node)
+        VigilantDroneAgent(f"vigilant{i}@localhost", "admin1234", ros_thread.node, i)
         for i in range(1, 2)  # creates vigilant1 and vigilant2
     ]
 

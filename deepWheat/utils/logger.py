@@ -4,8 +4,8 @@ from datetime import datetime
 AGENT_COLORS = {
     "central": "\033[94m",    # Blue
     "vigilant": "\033[92m",   # Green
-    "payload": "\033[91m",  # Red
-    "field": "\033[93m",      # Yellow
+    "payload": "\033[93m",  # Yellow
+    "field": "\033[91m",      # Red
     "default": "\033[0m",     # Reset
 }
 

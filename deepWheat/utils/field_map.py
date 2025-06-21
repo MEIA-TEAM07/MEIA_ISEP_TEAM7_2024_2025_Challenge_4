@@ -3,6 +3,7 @@
 import threading
 import csv
 import os
+from pathlib import Path
 # Define a mapping of field names to their CSV files
 
 class FieldMap:
@@ -65,4 +66,7 @@ class FieldMap:
             waypoints = [[x, y, -1.3] for (x, y) in coords.keys()]
         return waypoints
 
-shared_field_map = FieldMap("/home/marco/Documents/MEIA_ISEP_TEAM7_2024_2025_Challenge_4/deepWheat/data/field_map.csv")
+base_dir = Path(__file__).resolve().parent.parent  # adjust as needed
+csv_path = base_dir / "data" / "field_map.csv"
+
+shared_field_map = FieldMap(str(csv_path))
