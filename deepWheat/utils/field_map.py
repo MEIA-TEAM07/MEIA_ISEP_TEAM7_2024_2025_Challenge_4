@@ -12,7 +12,6 @@ class FieldMap:
         # Read map definitions from CSV
         with open(csv_path, newline='') as csvfile:
             reader = csv.reader(csvfile)
-            header = next(reader, None)
             for row in reader:
                 # Expecting CSV columns: field_id, x, y
                 field_id = int(row[0])

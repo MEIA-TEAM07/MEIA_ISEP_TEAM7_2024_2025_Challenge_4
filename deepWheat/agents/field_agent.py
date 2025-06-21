@@ -110,7 +110,7 @@ class FieldAgent(Agent):
                 
                 if ontology == "disease_alert":
                     field, xy, disease = msg.body.split("|")
-                    x, y = map(int, xy.split(","))
+                    x, y = map(float, xy.split(","))
                     mem = self.agent.memory[(field, x, y)]
                     
                     if mem["diseased"]:
