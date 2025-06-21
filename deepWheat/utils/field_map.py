@@ -2,9 +2,19 @@
 
 import threading
 import csv
+import os
+# Define a mapping of field names to their CSV files
 
 class FieldMap:
+    """
+    A class to manage field maps and plant locations.
+    This class reads field definitions from a CSV file and provides methods
+    to access plant information by field ID and coordinates.
+    It is thread-safe for concurrent access.
+    """
     def __init__(self, csv_path):
+
+
         self.lock = threading.Lock()
         # fields: field_id -> {(x, y): cell_info}
         self.fields = {}
@@ -31,5 +41,20 @@ class FieldMap:
     def get_plant(self, field_id, pos):
         with self.lock:
             return self.fields.get(field_id, {}).get(pos)
-      
+
+    def return_plant_locations_by_field(self, field_id):
+        """
+        Return list of [x, y, z] waypoints for a given field name,
+        using the already-loaded self.fields data. Z is fixed at -1.3.
+        """
+
+        with self.lock:
+            coords = self.fields.get(field_id)
+            if coords is None:
+                raise ValueError(f"No data loaded for field ID {field_id}")
+
+            # Build waypoints with fixed z coordinate -1.3
+            waypoints = [[x, y, -1.3] for (x, y) in coords.keys()]
+        return waypoints
+
 shared_field_map = FieldMap("deepWheat/data/field_map.csv")
