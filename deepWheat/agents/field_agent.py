@@ -4,31 +4,34 @@ from spade.message import Message
 from utils.season import is_growth_season
 from utils.logger import print_log, print_agent_header
 from utils.weather import get_current_weather
+from utils.field_map import shared_field_map
 from datetime import date
 from spade.behaviour import CyclicBehaviour
-from config import (
-    FIELD_ROWS,
-    FIELD_COLS,
-)
+
+
 
 class FieldAgent(Agent):
     def __init__(self, jid, password, field_id):
         super().__init__(jid, password)
         self.field_id = field_id
-        self.rows = FIELD_ROWS
-        self.cols = FIELD_COLS
-        self.memory = self.initialize_field_memory(field_id, self.rows, self.cols)
+        self.memory = self.initialize_field_memory(field_id)
         self.initialized_today = False  # Track if we've done initial setup today
         
-    def initialize_field_memory(self, field_id, rows, cols):
+    def initialize_field_memory(self):
         # Per-plant data + per-field fertilization date + monitoring date
         memory = {}
-        for x in range(rows):
-            for y in range(cols):
-                memory[(field_id, x, y)] = {
-                    "diseased": False,
-                    "being_treated": False,
-                }
+        memory["field_id"] = self.field_id
+        field_map = shared_field_map.get_field(self.field_id)
+        if not field_map:
+            raise ValueError(f"Field {self.field_id} not found in shared field map.")
+        for (x, y), cell_info in field_map.items():
+            field_id = self.field_id
+            # Initialize each plant's memory with default values
+            memory[(field_id, x, y)] = {
+                "diseased": False,
+                "being_treated": False,
+            }
+
         memory["last_fertilized_date"] = None
         memory["last_init_date"] = None  # Track when we last did initialization
         memory["last_monitoring_date"] = None  # Track when we last requested monitoring

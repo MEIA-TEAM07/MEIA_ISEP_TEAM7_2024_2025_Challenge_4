@@ -24,7 +24,7 @@ class FieldMap:
             reader = csv.reader(csvfile)
             for row in reader:
                 # Expecting CSV columns: field_id, x, y
-                field_id = int(row[0])
+                field_id = row[0]
                 x, y = float(row[1]), float(row[2])
 
                 # Initialize field dict on first encounter
@@ -41,6 +41,14 @@ class FieldMap:
     def get_plant(self, field_id, pos):
         with self.lock:
             return self.fields.get(field_id, {}).get(pos)
+    
+    def get_field(self, field_id):
+        """
+        Return the entire field data for a given field ID.
+        """
+        with self.lock:
+            return self.fields.get(field_id, {})
+
 
     def return_plant_locations_by_field(self, field_id):
         """
@@ -57,4 +65,4 @@ class FieldMap:
             waypoints = [[x, y, -1.3] for (x, y) in coords.keys()]
         return waypoints
 
-shared_field_map = FieldMap("deepWheat/data/field_map.csv")
+shared_field_map = FieldMap("/home/marco/Documents/MEIA_ISEP_TEAM7_2024_2025_Challenge_4/deepWheat/data/field_map.csv")
