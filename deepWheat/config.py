@@ -25,17 +25,6 @@ FIELDS = [
     {"field_id": "field_2", "rows": FIELD_ROWS, "cols": FIELD_COLS}
 ]
 
-DISEASED_PLANTS = {
-    "field_1": [
-        (0, 1, "white_stripe"),
-        (1, 3, "brown_rust")
-    ],
-    "field_2": [
-        (1, 2, "yellow_rust"),
-        (0, 4, "septoria"),
-    ],
-}
-
 # Map agent JIDs to fields
 FIELD_AGENT_ASSIGNMENT = {
     "field_1": "field1@localhost",
