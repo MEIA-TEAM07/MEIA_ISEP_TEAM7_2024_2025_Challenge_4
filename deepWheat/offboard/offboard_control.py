@@ -83,33 +83,8 @@ class OffboardControl:
         if self.nothing_to_do == True or self.current_waypoint_index >= len(self.target_waypoints) - 1:
             self.completed_position_publishing(t)
             return
-            
-        if self.waypoint_reached:
-                if self.unlocked:
-                    self.unlocked = False
-                    self.waypoint_counter = 0
-                    self.current_waypoint_index += 1
-        else:
-            wp = self.target_waypoints[self.current_waypoint_index]
-            x_difference = wp[0] - self.current_x
-            y_difference = wp[1] - self.current_y
-            z_difference = wp[2] - self.current_z
 
-            if (abs(x_difference) < 0.03 and abs(y_difference) < 0.03) or (self.current_waypoint_index == 0 and abs(z_difference) < 0.01):
-                if self.waypoint_counter >= 10:
-                    if self.current_waypoint_index == 0:
-                        self.unlocked = True
-                    self.waypoint_reached = True
-            else:
-                self.waypoint_counter = 0
-
-        self.waypoint_counter += 1
-
-        sp = TrajectorySetpoint()
-        sp.timestamp = t
-        sp.position = self.target_waypoints[self.current_waypoint_index]
-        sp.yaw = 0.0
-        self.setpoint_pub.publish(sp)
+        self.follow_path(t)
 
         self.publish_off_board_mode(t)
 
@@ -228,4 +203,32 @@ class OffboardControl:
         offboard.position = True
         self.offboard_pub.publish(offboard)
         return
+    
+    def follow_path(self, t):
+        if self.waypoint_reached:
+                if self.unlocked:
+                    self.unlocked = False
+                    self.waypoint_counter = 0
+                    self.current_waypoint_index += 1
+        else:
+            wp = self.target_waypoints[self.current_waypoint_index]
+            x_difference = wp[0] - self.current_x
+            y_difference = wp[1] - self.current_y
+            z_difference = wp[2] - self.current_z
+
+            if (self.current_waypoint_index != 0 and abs(x_difference) < 0.03 and abs(y_difference) < 0.03) or (self.current_waypoint_index == 0 and abs(z_difference) < 0.01):
+                if self.waypoint_counter >= 10:
+                    if self.current_waypoint_index == 0:
+                        self.unlocked = True
+                    self.waypoint_reached = True
+            else:
+                self.waypoint_counter = 0
+
+        self.waypoint_counter += 1
+
+        sp = TrajectorySetpoint()
+        sp.timestamp = t
+        sp.position = self.target_waypoints[self.current_waypoint_index]
+        sp.yaw = 0.0
+        self.setpoint_pub.publish(sp)
         
