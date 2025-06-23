@@ -33,18 +33,9 @@ class OffboardControl:
         qos = QoSProfile(depth=10)
         qos.reliability = ReliabilityPolicy.BEST_EFFORT
 
+        self.reset_variables()
+        self.first_call = True
 
-        self.nothing_to_do = True
-        self.count = 0
-        self.waypoint_counter = 0
-        self.mode_set = False
-        self.armed = False
-        self.altitude_reached = False
-        self.unlocked = False
-        self.waypoint_reached = False
-        self.current_waypoint_index = 0
-        self.first_scan = True
-        self.gimbal_pointed = False
 
         self.current_x = 0.0
         self.current_y = 0.0
@@ -68,25 +59,43 @@ class OffboardControl:
         self.current_y = msg.y
         self.current_z = msg.z
 
-    def scan(self, waypoints):
+    def scan(self, waypoints, waypoint_index=0):
+        self.reset_variables()
         self.target_waypoints = waypoints
-        self.current_waypoint_index = 0
-        print(waypoints)
-
-        if(self.first_scan):
-            self.scan_timer = self.node.create_timer(0.1, self.scan_callback)
+        self.current_waypoint_index = waypoint_index
+        self.task = 'scan'
         self.nothing_to_do = False
 
-    def scan_callback(self):
-        t = self.node.get_clock().now().nanoseconds
+        if(self.first_call):
+            self.first_call = False
+            self.scan_timer = self.node.create_timer(0.1, self.offboard_callback)
 
-        if self.nothing_to_do == True or self.current_waypoint_index >= len(self.target_waypoints) - 1:
-            self.completed_position_publishing(t)
+    def offboard_callback(self):
+        try:
+            t = self.node.get_clock().now().nanoseconds
+
+            is_last_waypoint = self.current_waypoint_index >= len(self.target_waypoints) - 1
+
+            if self.battery_level <= 0.0:
+                print("Battery depleted")
+                return
+
+            self.manage_battery()
+
+            if self.is_recharging == True:
+                return
+
+            if (self.nothing_to_do == True):
+                self.completed_position_publishing(t)
+                return
+        except Exception as e:
+            print(f"Error in offboard callback: {e}")
             return
 
         self.follow_path(t)
 
         self.publish_off_board_mode(t)
+
 
         if self.count == 0 and not self.armed:
             self.arm(t)
@@ -98,10 +107,10 @@ class OffboardControl:
         if self.mode_set and not self.gimbal_pointed:
             self.set_gimbal_pos()
 
-        self.count += 1
-
-        if self.count % 100 == 0:
+        if self.waypoint_reached == True and self.task == 'scan':
             asyncio.run_coroutine_threadsafe(self.process_image(), self.loop)
+
+        self.count += 1
 
     def arm(self, t):
         msg = VehicleCommand()
@@ -151,7 +160,7 @@ class OffboardControl:
         if self.latest_image is None:
             print('No image')
             return
-        # if self.unlocked == False:
+        self.unlocked = True
         img = self.latest_image
         h, w = img.shape[:2]
         top    = int(0.3 * h)
@@ -163,7 +172,6 @@ class OffboardControl:
         # 2) Classify the cropped center
         label = disease_classification_service.classify_from_array(cropped)
         print(f'Predicted disease: {label}')
-        self.unlocked = True        
 
         try:
             if label != 'Healthy':
@@ -174,11 +182,9 @@ class OffboardControl:
                 msg.set_metadata("ontology", "disease_alert")
                 msg.body = f"{label}, {self.target_waypoints[self.current_waypoint_index][0]}, {self.target_waypoints[self.current_waypoint_index][1]}"
                 await self.behaviour.send(msg)
-                print("Disease alert sent to agent:", self.agent_jid)
         except Exception as e:
             print(f"Error sending message to agent: {e}")
 
-        
     def set_gimbal_pos(self):
         print("Tried gimball")
         msg = Float64()
@@ -186,17 +192,18 @@ class OffboardControl:
         self.gimbal_pitch_pub.publish(msg)
         print("Published gimbal pitch = –1.5708 rad (down)")
         self.gimbal_pointed = True
+    
+    def send_message_completed(self):
+        self.target_waypoints = []
+        self.current_waypoint_index = 0
+        msg = Message(to=str(self.agent_jid))
+        msg.set_metadata("performative", "inform")
+        msg.set_metadata("ontology", "completed_scan")
+        msg.body = "Completed"
+        asyncio.run_coroutine_threadsafe(self.behaviour.send(msg), self.loop)
+        return
 
     def completed_position_publishing(self, t):
-        if self.nothing_to_do == False:
-            self.target_waypoints = []
-            self.current_waypoint_index = 0
-            msg = Message(to=str(self.agent_jid))
-            msg.set_metadata("performative", "inform")
-            msg.set_metadata("ontology", "completed_scan")
-            msg.body = "Completed"
-            asyncio.run_coroutine_threadsafe(self.behaviour.send(msg), self.loop)
-
         self.nothing_to_do = True
         offboard = OffboardControlMode()
         offboard.timestamp = t
@@ -205,11 +212,19 @@ class OffboardControl:
         return
     
     def follow_path(self, t):
-        if self.waypoint_reached:
-                if self.unlocked:
-                    self.unlocked = False
-                    self.waypoint_counter = 0
-                    self.current_waypoint_index += 1
+        if self.waypoint_reached == True and self.unlocked == True:
+            if self.current_waypoint_index < len(self.target_waypoints) - 1:
+                self.waypoint_reached = False
+                self.unlocked = False
+                self.waypoint_counter = 0
+                self.current_waypoint_index += 1
+            else:
+                print("Reached last waypoint)")
+                self.nothing_to_do = True
+                self.waypoint_reached = False
+                self.unlocked = False
+                if self.task != 'recharge':
+                    self.send_message_completed()
         else:
             wp = self.target_waypoints[self.current_waypoint_index]
             x_difference = wp[0] - self.current_x
@@ -221,14 +236,64 @@ class OffboardControl:
                     if self.current_waypoint_index == 0:
                         self.unlocked = True
                     self.waypoint_reached = True
+                self.waypoint_counter += 1
             else:
                 self.waypoint_counter = 0
 
-        self.waypoint_counter += 1
+        if self.nothing_to_do == False:
+            sp = TrajectorySetpoint()
+            sp.timestamp = t
+            sp.position = self.target_waypoints[self.current_waypoint_index]
+            sp.yaw = 0.0
+            self.setpoint_pub.publish(sp)
 
-        sp = TrajectorySetpoint()
-        sp.timestamp = t
-        sp.position = self.target_waypoints[self.current_waypoint_index]
-        sp.yaw = 0.0
-        self.setpoint_pub.publish(sp)
+    def manage_battery(self):
+        is_last_waypoint = self.current_waypoint_index >= len(self.target_waypoints) - 1
+        self.is_recharging = self.task == 'recharge' and is_last_waypoint and self.nothing_to_do == True
+
+        if self.is_recharging:
+            self.battery_level = self.battery_level + self.battery_recharge_rate
+            if(self.count % 10 == 0):
+                print(f"Recharging battery: {self.battery_level:.2f}%")
+            if self.battery_level >= 100.0:
+                self.battery_level = 100.0
+                self.is_recharging = False
+                print("Battery fully recharged")
+                self.nothing_to_do = False
+                # insert in first position of waypoints on hold the charging station waypoint
+                self.waypoints_on_hold.insert(self.waypoint_index_on_hold, self.charging_station_waypoint)
+                self.scan(self.waypoints_on_hold, self.waypoint_index_on_hold)
+        else:
+            self.battery_level = self.battery_level - self.battery_usage
+            if self.count % 10 == 0:
+                print(f"Battery level: {self.battery_level:.2f}%")
+            if self.low_battery_threshold >= self.battery_level:
+                print("Battery low, heading to charging station")
+                if self.task != 'recharge':
+                    self.waypoints_on_hold = self.target_waypoints
+                    self.waypoint_index_on_hold = self.current_waypoint_index
+                    self.target_waypoints = [self.charging_station_waypoint]
+                    self.current_waypoint_index = 0
+                    self.task = 'recharge'
+                return
         
+    def reset_variables(self):
+        self.task = None
+        self.nothing_to_do = True
+        self.count = 0
+        self.waypoint_counter = 0
+        self.mode_set = False
+        self.armed = False
+        self.altitude_reached = False
+        self.unlocked = False
+        self.waypoint_reached = False
+        self.current_waypoint_index = 0
+        self.gimbal_pointed = False
+        self.waypoint_index_on_hold = 0
+        self.charging_station_waypoint = [0.0, 7.0, -1.3]
+        self.is_recharging = False
+        self.battery_recharge_rate = 1.0
+        self.battery_level = 100.0
+        self.battery_usage = 0.15
+        self.low_battery_threshold = 30.0
+        self.waypoints_on_hold = []
