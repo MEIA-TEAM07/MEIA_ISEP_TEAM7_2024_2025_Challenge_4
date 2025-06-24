@@ -103,11 +103,11 @@ class VigilantDroneAgent(Agent):
             self.target_waypoints = shared_field_map.return_plant_locations_by_field(field_id)
             self.target_waypoints.insert(0, [0.0, 0.0, -1.3])
             self.target_waypoints = routing_service.find_shortest_path(self.target_waypoints)
+            self.target_waypoints.pop(0)
             self.agent.offboard_control.scan(self.target_waypoints)
             print_log(self.agent.jid.user, f" Navigating to field: {field_id}")
             
             await asyncio.sleep(FLIGHT_TIME)
-            self.agent.consume_battery(base_cost=5.0)
             if self.agent.battery_level < BATTERY_LOW_THRESHOLD:
                 print_log(self.agent.jid.user, "❗ Battery too low to continue. Returning to base.")
                 self.set_next_state("RETURN")
@@ -164,7 +164,7 @@ class VigilantDroneAgent(Agent):
             print_log(f"{self.agent.jid.user}", "🔙 Returning to base...")
             self.set_next_state("IDLE")
 
-    def consume_battery(self, base_cost=5.0):
+    def consume_battery(self, base_cost=1.0):
         usage = compute_battery_usage(base_cost, self.wind_speed)
         self.battery_level = drain_battery(self.battery_level, usage)
         print_log(self.jid.user, f"🔋 Battery after flying: {self.battery_level:.2f}% (used {usage:.2f}%)")
