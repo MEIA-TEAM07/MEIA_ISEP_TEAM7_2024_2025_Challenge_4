@@ -22,6 +22,11 @@ class OffboardControl:
             self.reset_variables()
             self.battery_level = 100.0
             self.first_call = True
+            self.idle_waypoint = [-3.0, 7.0, self.flying_altitude]
+            self.charging_station_waypoint = [0.0, 7.0, self.flying_altitude]
+            self.battery_recharge_rate = 1.0
+            self.battery_usage = 0.10
+            self.low_battery_threshold = 30.0
 
             self.current_x = 0.0
             self.current_y = 0.0
@@ -81,9 +86,12 @@ class OffboardControl:
             self.follow_scan_path(t)
 
             if self.waypoint_reached == True:
-                asyncio.run_coroutine_threadsafe(self.process_image(), self.loop)
+                if self.image_processing_started == False:
+                    asyncio.run_coroutine_threadsafe(self.process_image(), self.loop)
+                    self.image_processing_started = True
 
                 is_last_waypoint = self.current_waypoint_index >= len(self.target_waypoints) - 1
+                print(self.unlocked)
                 if is_last_waypoint and self.unlocked == True:
                     self.send_scan_complete()
 
@@ -94,8 +102,11 @@ class OffboardControl:
         return
 
     def idle_callback(self, t):
-        self.offboard_ros_messenger.publish_off_board_mode(t)
-    
+        self.arm_and_set_offboard_mode(t)
+        tookoff = self.takeoff(t)
+        if tookoff == True:
+            self.offboard_ros_messenger.publish_setpoint(t,self.idle_waypoint)
+
     def arm_and_set_offboard_mode(self, t):
         self.offboard_ros_messenger.publish_off_board_mode(t)
 
@@ -155,9 +166,11 @@ class OffboardControl:
             if is_last_waypoint == False:
                 self.waypoint_reached = False
                 self.unlocked = False
+                self.image_processing_started = False
                 self.waypoint_counter = 0
                 self.current_waypoint_index += 1
             else:
+                self.image_processing_started = False
                 self.waypoint_reached = False
                 self.unlocked = False
         else:
@@ -231,11 +244,8 @@ class OffboardControl:
         self.current_waypoint_index = 0
         self.gimbal_pointed = False
         self.waypoint_index_on_hold = 0
-        self.charging_station_waypoint = [0.0, 7.0, self.flying_altitude]
-        self.battery_recharge_rate = 1.0
-        self.battery_usage = 0.15
-        self.low_battery_threshold = 30.0
         self.charging_counter = 0
+        self.image_processing_started = False
 
     def calculate_distance_to_point(self, point):
         x_diff = point[0] - self.current_x
@@ -250,7 +260,6 @@ class OffboardControl:
     def change_from_recharge_to_task_on_hold(self):
         self.charging_counter = 0
         self.task = self.task_on_hold
-        print(f"In Change to task on hold: (Task on hold:){self.task_on_hold}, (Task:) {self.task}")
         if self.task == 'scan':
             self.set_variables_for_activity()
         elif self.task == 'idle':
