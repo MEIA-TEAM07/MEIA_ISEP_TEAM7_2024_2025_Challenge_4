@@ -25,7 +25,7 @@ class OffboardControl:
             self.first_call = True
             self.idle_waypoint = [-3.0, 7.0, self.flying_altitude]
             self.charging_station_waypoint = [0.0, 7.0, self.flying_altitude]
-            self.battery_recharge_rate = 1.0
+            self.battery_recharge_rate = 0.7
             self.battery_usage = 0.06
             self.low_battery_threshold = 30.0
             self.idle_count = 0
@@ -91,17 +91,18 @@ class OffboardControl:
 
         tookoff = self.takeoff(t)
         if tookoff == True:
-            self.follow_scan_path(t)
+            if self.unlocked.locked() == False:
+                self.follow_scan_path(t)
 
-            if self.waypoint_reached == True:
-                if self.image_processing_started == False:
-                    asyncio.run_coroutine_threadsafe(self.process_image(), self.loop)
-                    self.image_processing_started = True
+                if self.waypoint_reached == True:
+                    if self.image_processing_started == False:
+                        asyncio.run_coroutine_threadsafe(self.process_image(), self.loop)
+                        self.image_processing_started = True
 
-                is_last_waypoint = self.current_waypoint_index >= len(self.target_waypoints) - 1
-                with self.unlocked:
-                    if is_last_waypoint == True:
-                        self.send_scan_complete()
+                    is_last_waypoint = self.current_waypoint_index >= len(self.target_waypoints) - 1
+                    if self.unlocked.locked() == False:
+                        if is_last_waypoint == True:
+                            self.send_scan_complete()
 
     def charging_callback(self, t):
         is_ready_to_charge = self.follow_charging_path(t)
