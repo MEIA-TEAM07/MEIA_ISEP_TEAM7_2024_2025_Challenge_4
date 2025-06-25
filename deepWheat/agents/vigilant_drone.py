@@ -33,7 +33,7 @@ class VigilantDroneAgent(Agent):
         super().__init__(jid, password)
         self.ros_node = ros_node
         self.id = id
-        self.lock = threading.Lock()
+        self.flag = False 
 
     class VigilantFSM(FSMBehaviour):
         async def on_start(self):
@@ -60,7 +60,7 @@ class VigilantDroneAgent(Agent):
 
     class NegotiationBehaviour(CyclicBehaviour):
         async def run(self):
-            if self.agent.fsm.current_state != "IDLE" and self.agent.lock.locked() == True:
+            if self.agent.fsm.current_state != "IDLE" and self.agent.flag == True:
                 return
             else:
                 msg = await self.receive(timeout=5)
@@ -115,7 +115,7 @@ class VigilantDroneAgent(Agent):
 
     class NavigateToField(State):
         async def run(self):
-            self.agent.lock.acquire()
+            self.agent.flag = True
             field_id = self.agent.target_field
             print(field_id)
             self.target_waypoints = shared_field_map.return_plant_locations_by_field(field_id)
@@ -175,7 +175,7 @@ class VigilantDroneAgent(Agent):
     class ReturnToBase(State):
         async def run(self):
             print_log(f"{self.agent.jid.user}", "🔙 Returning to base...")
-            self.agent.lock.release()
+            self.agent.flag = False
             self.set_next_state("IDLE")
 
     def consume_battery(self, base_cost=1.0):
