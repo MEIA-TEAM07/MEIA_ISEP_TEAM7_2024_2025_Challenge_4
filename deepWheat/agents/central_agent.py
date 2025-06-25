@@ -43,6 +43,10 @@ class CentralAgent(Agent):
     def add_request(self, request_data):
         with self.reqlock:
             self.request_queue.append(request_data)
+    
+    def addleft_request(self, request_data):
+        with self.reqlock:
+            self.request_queue.appendleft(request_data)
 
     def drone_available(self, drone_jid):
         with self.dlock:
@@ -191,7 +195,7 @@ class CentralAgent(Agent):
                     return
                 else:
                     print_log(self.agent.jid.user, f"⚠️ No available {drone_type} drones for {self.ontology}. Cannot process monitoring request.")
-                    self.agent.add_request(request_data)
+                    self.agent.addleft_request(request_data)
                     self.set_next_state(STATE_WAIT)
                     return
             elif self.ontology == "fertilization_request":
@@ -203,7 +207,7 @@ class CentralAgent(Agent):
                     return
                 else:
                     print_log(self.agent.jid.user, f"⚠️ No available {drone_type} drones for {self.ontology}. Cannot process fertilization request.")
-                    self.agent.add_request(request_data)
+                    self.agent.addleft_request(request_data)
                     self.set_next_state(STATE_WAIT)
                     return
             elif self.ontology == "treatment_request":
@@ -215,7 +219,7 @@ class CentralAgent(Agent):
                     return
                 else:
                     print_log(self.agent.jid.user, f"⚠️ No available {drone_type} drones for {self.ontology}. Cannot process treatment request.")
-                    self.agent.add_request(request_data)
+                    self.agent.addleft_request(request_data)
                     self.set_next_state(STATE_WAIT)
                     return
             else:
@@ -307,7 +311,7 @@ class CentralAgent(Agent):
                 
                 print_log(self.agent.jid.user, f"❌ Sent rejections to {rejected_count} drones")
             else:
-                self.agent.add_request(self.get("request"))
+                self.agent.addleft_request(self.get("request"))
                 print_log(self.agent.jid.user, "⚠️ No proposals received. All drones might be busy or recharging.")
 
             # Mark processing as complete
