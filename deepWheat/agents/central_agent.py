@@ -217,7 +217,7 @@ class CentralAgent(Agent):
                 cfp.set_metadata("performative", "cfp")
                 cfp.set_metadata("ontology", ontology)
                 cfp.body = field_data 
-                await self.agent.send(cfp)
+                await self.send(cfp)
                 print_log(self.agent.jid.user, f"📤 Sent CFP to {drone.split('.')[0]} for {ontology} in field {field_data}")
             self.agent.responders = drones
             self.agent.proposals = []
