@@ -1,5 +1,6 @@
 import asyncio
 import random
+import threading
 from spade.agent import Agent
 from spade.behaviour import FSMBehaviour, State
 from spade.message import Message
@@ -32,6 +33,7 @@ class VigilantDroneAgent(Agent):
         super().__init__(jid, password)
         self.ros_node = ros_node
         self.id = id
+        self.lock = threading.Lock()
 
     class VigilantFSM(FSMBehaviour):
         async def on_start(self):
@@ -58,7 +60,7 @@ class VigilantDroneAgent(Agent):
 
     class NegotiationBehaviour(CyclicBehaviour):
         async def run(self):
-            if self.agent.fsm.current_state != "IDLE":
+            if self.agent.fsm.current_state != "IDLE" and self.agent.lock.locked() == True:
                 return
             else:
                 msg = await self.receive(timeout=5)
@@ -113,7 +115,7 @@ class VigilantDroneAgent(Agent):
 
     class NavigateToField(State):
         async def run(self):
-            
+            self.agent.lock.acquire()
             field_id = self.agent.target_field
             print(field_id)
             self.target_waypoints = shared_field_map.return_plant_locations_by_field(field_id)
@@ -122,13 +124,7 @@ class VigilantDroneAgent(Agent):
             self.target_waypoints.pop(0)
             self.agent.offboard_control.scan(self.target_waypoints)
             print_log(self.agent.jid.user, f" Navigating to field: {field_id}")
-            
-            await asyncio.sleep(FLIGHT_TIME)
-            if self.agent.battery_level < BATTERY_LOW_THRESHOLD:
-                print_log(self.agent.jid.user, "❗ Battery too low to continue. Returning to base.")
-                self.set_next_state("RETURN")
-            else:
-                self.set_next_state("SCAN")
+            self.set_next_state("SCAN")
 
     class ScanField(State):
         async def run(self):
@@ -178,6 +174,7 @@ class VigilantDroneAgent(Agent):
     class ReturnToBase(State):
         async def run(self):
             print_log(f"{self.agent.jid.user}", "🔙 Returning to base...")
+            self.agent.lock.release()
             self.set_next_state("IDLE")
 
     def consume_battery(self, base_cost=1.0):
