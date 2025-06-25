@@ -119,7 +119,8 @@ class VigilantDroneAgent(Agent):
             field_id = self.agent.target_field
             print(field_id)
             self.target_waypoints = shared_field_map.return_plant_locations_by_field(field_id)
-            self.target_waypoints.insert(0, [0.0, 0.0, -1.3])
+            self.target_waypoints.insert(0, [self.agent.offboard_control.current_x, self.agent.offboard_control.current_y, self.agent.offboard_control.flying_altitude])
+            print(self.target_waypoints)
             self.target_waypoints = routing_service.find_shortest_path(self.target_waypoints)
             self.target_waypoints.pop(0)
             self.agent.offboard_control.scan(self.target_waypoints)

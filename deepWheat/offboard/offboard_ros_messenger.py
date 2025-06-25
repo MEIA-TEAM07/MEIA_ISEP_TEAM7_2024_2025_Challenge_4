@@ -51,7 +51,6 @@ class OffboardRosMessenger:
         msg.source_component = 1
         msg.from_external = True
         self.command_pub.publish(msg)
-        print('Arm command sent')
 
     def set_offboard_mode(self, t):
         msg = VehicleCommand()
@@ -65,7 +64,6 @@ class OffboardRosMessenger:
         msg.source_component = 1
         msg.from_external = True
         self.command_pub.publish(msg)
-        print('Offboard mode command sent')
 
     def publish_off_board_mode(self, t):
         offboard = OffboardControlMode()
@@ -92,5 +90,4 @@ class OffboardRosMessenger:
         msg = Float64()
         msg.data = -1.5708
         self.gimbal_pitch_pub.publish(msg)
-        print("Published gimbal pitch = –1.5708 rad (down)")
         self.offboardControl.gimbal_pointed = True
