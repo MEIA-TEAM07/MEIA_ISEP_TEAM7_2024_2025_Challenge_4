@@ -15,6 +15,9 @@ WIND_MAX = 15
 FLIGHT_TIME = 2
 APPLICATION_TIME = 2
 
+PROPOSAL_TIMEOUT     = 8    # seconds to wait for proposals
+RECEIVE_TIMEOUT      = 1    # seconds to wait for message reception
+
 # Grid size for all fields (can be made per-field if needed)
 FIELD_ROWS = 2
 FIELD_COLS = 5
@@ -34,6 +37,44 @@ FIELD_AGENTS = [
     {"agent_jid": "field1@localhost", "field_id": "field_1"},
     {"agent_jid": "field2@localhost", "field_id": "field_2"}
 ]
+
+TYPE_DRONE_PAYLOAD = "payload_drone"
+TYPE_DRONE_VIGILANT = "vigilant_drone"
+
+# SPADE settings
+
+# ALL ONTOLOGIES
+ONTOLOGY                   = "ontology" 
+ONTOLOGY_DRONE_REGISTRATION = "drone_registration"
+ONTOLOGY_DRONE_REGISTRATION_ACK = "registration_ack"
+ONTOLOGY_PESTICIDE         = "pesticide_request"
+LIST_OF_REQUEST_ONTOLOGIES = ["monitoring_request", "fertilization_request", "treatment_request"]
+REQUEST_ONTOLOGIES   = [
+    "monitoring_request",
+    "fertilization_request",
+    "treatment_request",
+]
+
+# ALL PERFORMATIVES 
+PERFORMATIVE               = "performative"
+PERFORMATIVE_REGISTER      = "register"
+PERFORMATIVE_CONFIRM       = "confirm"
+PERFORMATIVE_CFP           = "cfp"
+PERFORMATIVE_AFFIRM        = "affirm"
+PERFORMATIVE_PROPOSAL      = "proposal"
+PERFORMATIVE_ACCEPT        = "accept_proposal"
+PERFORMATIVE_REJECT        = "reject_proposal"
+PERFORMATIVE_INFORM        = "inform"
+
+# STATE MACHINE
+STATE_WAIT                 = "WAIT"
+STATE_COLLECT_PROPOSALS    = "COLLECT_PROPOSALS"
+STATE_CFP                  = "SEND_CFP"
+STATE_IDLE                 = "IDLE"
+STATE_NAVIGATE             = "NAVIGATE"
+STATE_SCAN                 = "SCAN"
+STATE_COLLECT_PROPOSALS    = "COLLECT_PROPOSALS"
+
 # Weather settings
 WEATHER_API_KEY = "bcbf7b4cabfaa6fa5678dc5c5ada8a96"
 WEATHER_LAT = 41.1496

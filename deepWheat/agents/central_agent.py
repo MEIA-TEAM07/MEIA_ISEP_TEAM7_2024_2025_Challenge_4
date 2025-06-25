@@ -1,40 +1,87 @@
 from spade.agent import Agent
 from spade.behaviour import FSMBehaviour, State, CyclicBehaviour
 from spade.message import Message
+from spade.template import Template
 from utils.logger import print_log, print_agent_header
 from utils.negotiation import evaluate_proposal
 import asyncio
 from collections import deque
+import threading
+from config import (ONTOLOGY_DRONE_REGISTRATION_ACK, STATE_WAIT, STATE_COLLECT_PROPOSALS, STATE_CFP, PROPOSAL_TIMEOUT, RECEIVE_TIMEOUT, 
+                    PERFORMATIVE, PERFORMATIVE_PROPOSAL, ONTOLOGY, ONTOLOGY_PESTICIDE, LIST_OF_REQUEST_ONTOLOGIES,
+                    ONTOLOGY_DRONE_REGISTRATION, PERFORMATIVE_REGISTER, PERFORMATIVE_CONFIRM, TYPE_DRONE_PAYLOAD, TYPE_DRONE_VIGILANT,)
 
 class CentralAgent(Agent):
+
+    def __init__(self, jid, password):
+        super().__init__(jid, password)
+        self.vigilant_drones = []
+        self.payload_drones = []
+        self.available_drones = ["vigilant1@localhost", "payload1@localhost"]  # All drones are initially available
+        self.request_queue = deque()
+        
+        self.reqlock = threading.Lock()
+        self.dlock = threading.Lock()
+
+    def pop_request(self):
+        with self.reqlock:
+            if self.request_queue:
+                return self.request_queue.popleft()
+            return None
+        
+    def add_request(self, request_data):
+        with self.reqlock:
+            self.request_queue.append(request_data)
+
+    def drone_available(self, drone_jid):
+        with self.dlock:
+            if drone_jid not in self.available_drones and drone_jid in self.vigilant_drones and drone_jid in self.payload_drones:
+                self.available_drones.append(drone_jid)
+                print_log(self.jid.user, f"✅ Drone available: {drone_jid.split('.')[0]}")
+            elif drone_jid not in self.vigilant_drones and drone_jid not in self.payload_drones:
+                print_log(self.jid.user, f"⚠️ Drone not registered: {drone_jid.split('.')[0]}")
+            elif drone_jid in self.available_drones:
+                print_log(self.jid.user, f"⚠️ Drone already marked as available: {drone_jid.split('.')[0]}")
+
+    def drone_unavailable(self, drone_jid):
+        with self.dlock:
+            if drone_jid in self.available_drones and drone_jid in self.vigilant_drones and drone_jid in self.payload_drones:
+                self.available_drones.remove(drone_jid)
+                print_log(self.jid.user, f"❌ Drone unavailable: {drone_jid.split('.')[0]}")
+            elif drone_jid not in self.vigilant_drones and drone_jid not in self.payload_drones:
+                print_log(self.jid.user, f"⚠️ Drone not registered: {drone_jid.split('.')[0]}")
+            elif drone_jid not in self.available_drones:
+                print_log(self.jid.user, f"⚠️ Drone already marked as unavailable: {drone_jid.split('.')[0]}")
+
+
     class DroneRegistration(CyclicBehaviour):
         """Handles drone registration and deregistration"""
         async def run(self):
             msg = await self.receive(timeout=1)
             if msg:
-                ontology = msg.metadata.get("ontology")
-                performative = msg.metadata.get("performative")
-                
-                if ontology == "drone_registration":
-                    if performative == "register":
+                ontology = msg.metadata.get(ONTOLOGY)
+                performative = msg.metadata.get(PERFORMATIVE)
+
+                if ontology == ONTOLOGY_DRONE_REGISTRATION:
+                    if performative == PERFORMATIVE_REGISTER:
                         # Handle drone registration
                         try:
                             drone_type, drone_jid = msg.body.split("|")
                             drone_jid_str = str(drone_jid).split("/")[0]  # Clean JID format
                             
-                            if drone_type == "payload_drone":
+                            if drone_type == TYPE_DRONE_PAYLOAD:
                                 if drone_jid_str not in self.agent.payload_drones:
                                     self.agent.payload_drones.append(drone_jid_str)
                                     print_log(self.agent.jid.user, f"✅ Registered payload drone: {drone_jid_str}")
-                            elif drone_type == "vigilant_drone":
+                            elif drone_type == TYPE_DRONE_VIGILANT:
                                 if drone_jid_str not in self.agent.vigilant_drones:
                                     self.agent.vigilant_drones.append(drone_jid_str)
                                     print_log(self.agent.jid.user, f"✅ Registered vigilant drone: {drone_jid_str}")
                                     
                             # Send acknowledgment
                             ack = Message(to=str(msg.sender))
-                            ack.set_metadata("performative", "confirm")
-                            ack.set_metadata("ontology", "registration_ack")
+                            ack.set_metadata(PERFORMATIVE, PERFORMATIVE_CONFIRM)
+                            ack.set_metadata(ONTOLOGY, ONTOLOGY_DRONE_REGISTRATION_ACK)
                             ack.body = f"Registration successful for {drone_type}"
                             await self.send(ack)
                             
@@ -57,132 +104,144 @@ class CentralAgent(Agent):
                         except Exception as e:
                             print_log(self.agent.jid.user, f"⚠️ Deregistration error: {e}")
 
+    class RequestReception(CyclicBehaviour):
+        async def run(self):
+            msg = await self.receive()
+            if msg:
+                ontology = msg.metadata.get(ONTOLOGY)
+                # Accept monitoring, fertilization, and treatment requests
+                if ontology in LIST_OF_REQUEST_ONTOLOGIES:
+                    request_data = {
+                        "ontology": ontology,
+                        "field_data": msg.body,
+                        "field_agent": str(msg.sender)
+                    }
+                    self.agent.add_request(request_data)
+                    print_log(self.agent.jid.user, f"📋 Received {ontology} from {msg.sender}: {msg.body}")
+                else:
+                    print_log(self.agent.jid.user, f"⚠️ Unknown request ontology: {ontology}")
+
+    class DroneStatusUpdate(CyclicBehaviour):
+        async def run(self):
+            msg = await self.receive()
+            if msg:
+                if msg.sender: 
+                    drone_jid = str(msg.sender)
+                    if msg.metadata.get("ontology") == "drone_status_update" and msg.metadata.get("performative") == "inform":
+                        status = msg.body
+                        print_log(self.agent.jid.user, f"📊 Drone status update from {drone_jid.split('.')[0]}: {status}")
+                        # Here you could implement logic to handle drone status updates
+                        # For example, update internal state or notify field agents
+                        if status == "available":
+                            self.agent.drone_available(drone_jid)
+                        elif status == "unavailable":
+                            self.agent.drone_unavailable(drone_jid)
+                else:
+                    print_log(self.agent.jid.user, "⚠️ Received drone status update without sender JID. Ignoring.")
+
+
     class ContractNetManager(FSMBehaviour):
         async def on_start(self):
             print_agent_header(self.agent.jid.user)
             print_log(self.agent.jid.user, "🧠 Starting ContractNetManager...")
             # Initialize request queue
             self.agent.request_queue = deque()
-            self.agent.processing_request = False
-
         async def on_end(self):
             print_log(self.agent.jid.user, "✅ Contract negotiation finished.")
 
     class WaitRequest(State):
         async def run(self):
-            while True:  # Keep looping until we find work or need to transition
-                # First priority: check if we have queued requests and we're not currently processing
-                if self.agent.request_queue and not self.agent.processing_request:
-                    print_log(self.agent.jid.user, f"📋 Processing queued request ({len(self.agent.request_queue)} in queue)")
-                    request_data = self.agent.request_queue.popleft()
-                    self.set("ontology", request_data["ontology"])
-                    self.set("field_data", request_data["field_data"])
-                    self.set("field_agent", request_data["field_agent"])
-                    self.agent.processing_request = True
-                    self.set_next_state("SEND_CFP")
-                    return
-
-                # If we're currently processing, just wait and check queue again
-                if self.agent.processing_request:
-                    print_log(self.agent.jid.user, "⏳ Currently processing request, waiting...")
-                    await asyncio.sleep(1)  # Short wait before checking queue again
-                    continue
-
-                # If no queued requests and not processing, wait for new messages
-                print_log(self.agent.jid.user, "📥 Waiting for field requests...")
-                msg = await self.receive(timeout=2)  # Shorter timeout for more responsive queue checking
-                
-                if msg:
-                    ontology = msg.metadata.get("ontology")
-                    # Accept monitoring, fertilization, and treatment requests
-                    if ontology in ["monitoring_request", "fertilization_request", "treatment_request"]:
-                        request_data = {
-                            "ontology": ontology,
-                            "field_data": msg.body,
-                            "field_agent": str(msg.sender)
-                        }
-                        
-                        if self.agent.processing_request:
-                            # Currently processing, add to queue
-                            self.agent.request_queue.append(request_data)
-                            print_log(self.agent.jid.user, f"📋 Request queued: {ontology} (queue size: {len(self.agent.request_queue)})")
-                            # Continue the loop to keep checking
-                            continue
-                        else:
-                            # Not processing, handle immediately
-                            self.set("ontology", ontology)
-                            self.set("field_data", msg.body)
-                            self.set("field_agent", str(msg.sender))
-                            self.agent.processing_request = True
-                            self.set_next_state("SEND_CFP")
-                            return
-                    else:
-                        print_log(self.agent.jid.user, f"⚠️ Unknown request: {ontology}")
-                        # Continue the loop
-                        continue
-                else:
-                    # Timeout occurred - this is normal, just continue the loop to check queue again
-                    print_log(self.agent.jid.user, "🕒 No new messages, checking queue...")
-                    continue
+            if self.agent.request_queue:
+                self.set_next_state(STATE_CFP)
+                return
+            else:
+                self.set_next_state(STATE_WAIT)
 
     class SendCFP(State):
         async def run(self):
-            ontology = self.get("ontology")
-            field_data = self.get("field_data")
-            
-            # Decide which drones to send CFP to
-            if ontology == "monitoring_request":
+            print_log(self.agent.jid.user, f"📋 Processing queued request ({len(self.agent.request_queue)} in queue)")
+            request_data = self.agent.pop_request()
+            if not request_data:
+                print_log(self.agent.jid.user, "⚠️ No request data found. Returning to WAIT state.")
+                self.set_next_state(STATE_WAIT)
+                return
+            self.ontology = request_data[ONTOLOGY]
+            field_data = request_data["field_data"]
+            field_agent = request_data["field_agent"]
+            drones = []
+            # Get available drones based on ontology
+            if self.ontology == "monitoring_request":
                 drones = self.agent.vigilant_drones
                 drone_type = "vigilant"
-            else:  # fertilization_request or treatment_request
+                if any(drone in self.agent.available_drones for drone in drones):
+                    print_log(self.agent.jid.user, f"📦 Found available {drone_type} drones for {self.ontology}")
+                    await self.send_cfp(self.ontology, field_data, drones)
+                    return
+                else:
+                    print_log(self.agent.jid.user, f"⚠️ No available {drone_type} drones for {self.ontology}. Cannot process monitoring request.")
+                    self.agent.add_request(request_data)
+                    self.set_next_state(STATE_WAIT)
+                    return
+            elif self.ontology == "fertilization_request":
                 drones = self.agent.payload_drones
                 drone_type = "payload"
-
-            if not drones:
-                print_log(self.agent.jid.user, f"⚠️ No {drone_type} drones available for {ontology}")
-                self.agent.processing_request = False
-                self.set_next_state("WAIT")
+                if any(drone in self.agent.available_drones for drone in drones):
+                    print_log(self.agent.jid.user, f"📦 Found available {drone_type} drones for {self.ontology}")
+                    await self.send_cfp(self.ontology, field_data, drones)   
+                    return
+                else:
+                    print_log(self.agent.jid.user, f"⚠️ No available {drone_type} drones for {self.ontology}. Cannot process fertilization request.")
+                    self.agent.add_request(request_data)
+                    self.set_next_state(STATE_WAIT)
+                    return
+            elif self.ontology == "treatment_request":
+                drones = self.agent.payload_drones
+                drone_type = "payload"
+                if any(drone in self.agent.available_drones for drone in drones):
+                    print_log(self.agent.jid.user, f"📦 Found available {drone_type} drones for {self.ontology}")
+                    await self.send_cfp(self.ontology, field_data, drones)
+                    return
+                else:
+                    print_log(self.agent.jid.user, f"⚠️ No available {drone_type} drones for {self.ontology}. Cannot process treatment request.")
+                    self.agent.add_request(request_data)
+                    self.set_next_state(STATE_WAIT)
+                    return
+            else:
+                print_log(self.agent.jid.user, f"⚠️ Unknown request ontology: {self.ontology}")
+                self.set_next_state(STATE_WAIT)
                 return
-
-            print_log(self.agent.jid.user, f"📤 Sending CFP for {ontology}: {field_data} to {len(drones)} {drone_type} drones")
             
-            # Send CFP to ALL appropriate drones
-            cfp_messages = []
+        async def send_cfp(self, ontology, field_data, drones):
             for drone in drones:
                 cfp = Message(to=drone)
                 cfp.set_metadata("performative", "cfp")
-                # Use the right ontology for drones
-                if ontology == "treatment_request":
-                    cfp.set_metadata("ontology", "pesticide_request")
-                else:
-                    cfp.set_metadata("ontology", ontology)
-                cfp.body = field_data
-                cfp_messages.append(cfp)
-
-            # Send all CFPs
-            for cfp in cfp_messages:
-                await self.send(cfp)
-                print_log(self.agent.jid.user, f"📤 CFP sent to {cfp.to}")
-
-            self.agent.proposals = []
+                cfp.set_metadata("ontology", ontology)
+                cfp.body = field_data 
+                await self.agent.send(cfp)
+                print_log(self.agent.jid.user, f"📤 Sent CFP to {drone.split('.')[0]} for {ontology} in field {field_data}")
             self.agent.responders = drones
-            self.set_next_state("COLLECT_PROPOSALS")
+            self.agent.proposals = []
+            
+            self.set("ontology", ontology)
+            self.set("field_data", field_data)
+
+            self.set_next_state(STATE_COLLECT_PROPOSALS)
+            return
 
     class CollectProposals(State):
         async def run(self):
-            ontology = self.get("ontology")
-            print_log(self.agent.jid.user, f"📨 Collecting proposals for {ontology}...")
+            self.ontology = self.get("ontology")
+            print_log(self.agent.jid.user, f"📨 Collecting proposals for {self.ontology}...")
             
             start = asyncio.get_event_loop().time()
-            proposal_timeout = 8  # Increased timeout for better collection
             
-            while asyncio.get_event_loop().time() - start < proposal_timeout:
-                msg = await self.receive(timeout=1)
+            while asyncio.get_event_loop().time() - start < PROPOSAL_TIMEOUT:
+                msg = await self.receive()
                 if msg:
-                    performative = msg.metadata.get("performative")
-                    msg_ontology = msg.metadata.get("ontology")
-                    
-                    if performative == "proposal":
+                    performative = msg.metadata.get(PERFORMATIVE)
+                    msg_ontology = msg.metadata.get(ONTOLOGY)
+
+                    if performative == PERFORMATIVE_PROPOSAL:
                         # Handle proposal messages as before
                         sender = str(msg.sender).split("/")[0]
                         try:
@@ -200,7 +259,7 @@ class CentralAgent(Agent):
                             "field_data": msg.body,
                             "field_agent": str(msg.sender)
                         }
-                        self.agent.request_queue.append(request_data)
+                        self.agent.add_request(request_data)
                         print_log(self.agent.jid.user, f"📋 Request queued while collecting proposals: {msg_ontology} (queue size: {len(self.agent.request_queue)})")
 
             print_log(self.agent.jid.user, f"📋 Collected {len(self.agent.proposals)} proposals from {len(self.agent.responders)} drones")
@@ -216,16 +275,16 @@ class CentralAgent(Agent):
                 decision = Message(to=best_drone[0])
                 decision.set_metadata("performative", "accept_proposal")
                 # Use correct ontology for drone accept
-                if ontology == "treatment_request":
+                if self.ontology == "treatment_request":
                     decision.set_metadata("ontology", "pesticide_request")
                 else:
-                    decision.set_metadata("ontology", ontology)
+                    decision.set_metadata("ontology", self.ontology)
                 decision.body = self.get("field_data")
                 await self.send(decision)
-                print_log(self.agent.jid.user, f"✅ Assigned {ontology} to {best_drone[3]}")
+                print_log(self.agent.jid.user, f"✅ Assigned {self.ontology} to {best_drone[3]}")
 
                 # Notify FieldAgent when a treatment is assigned
-                if ontology == "treatment_request":
+                if self.ontology == "treatment_request":
                     field_agent_jid = self.get("field_agent")
                     fa_msg = Message(to=field_agent_jid)
                     fa_msg.set_metadata("performative", "inform")
@@ -239,7 +298,7 @@ class CentralAgent(Agent):
                     if responder != best_drone[0]:
                         rejection = Message(to=responder)
                         rejection.set_metadata("performative", "reject_proposal")
-                        rejection.set_metadata("ontology", ontology if ontology != "treatment_request" else "pesticide_request")
+                        rejection.set_metadata("ontology", self.ontology if self.ontology != "treatment_request" else "pesticide_request")
                         rejection.body = "Better proposal selected."
                         await self.send(rejection)
                         rejected_count += 1
@@ -249,19 +308,46 @@ class CentralAgent(Agent):
                 print_log(self.agent.jid.user, "⚠️ No proposals received. All drones might be busy or recharging.")
 
             # Mark processing as complete
-            self.agent.processing_request = False
-            self.set_next_state("WAIT")
+            self.set_next_state(STATE_WAIT)
 
     # central_agent.py - Go back to the simple working approach with all bug fixes:
 
     async def setup(self):
+
+        self.tmplRegistration = Template()
+        self.tmplStatusUpdate = Template()
+        self.tmplRequest = Template()
+        self.tmplProposal = Template()
+
+        self.tmplRegistration.set_metadata("ontology", "drone_registration")
+        self.tmplStatusUpdate.set_metadata("ontology", "drone_status_update")
+        self.tmplRequest.set_metadata("performative", "request")
+        # Templates para cada ontology
+        ontologies = ["monitoring_request", "fertilization_request",
+                      "treatment_request", "pesticide_request"]
+        tmpl_onts = [Template().set_metadata("ontology", ont) or Template() for ont in ontologies]
+
+        # Templates para cada performative
+        tmpl_cfp   = Template(); tmpl_cfp.set_metadata("performative", "cfp")
+        tmpl_prop  = Template(); tmpl_prop.set_metadata("performative", "proposal")
+
+        # Combinações
+        any_ontology = tmpl_onts[0] | tmpl_onts[1] | tmpl_onts[2] | tmpl_onts[3]
+        any_perf     = tmpl_cfp | tmpl_prop
+
+        self.combined_tmpl = any_ontology & any_perf
+        self.combined_tmpl2 = any_ontology & self.tmplRequest
+        
+        #self.add_behaviour(self.DroneRegistration(), template=self.tmplRegistration)
+        self.add_behaviour(self.DroneStatusUpdate(), self.tmplStatusUpdate)
+        self.add_behaviour(self.RequestReception(), self.combined_tmpl2)
+
         # Hardcoded drone lists (simple and reliable)
         self.vigilant_drones = ["vigilant1@localhost", "vigilant2@localhost"]
         self.payload_drones = ["payload1@localhost", "payload2@localhost", "payload3@localhost"]  # All 3 drones
         
         # Initialize request processing state
         self.request_queue = deque()
-        self.processing_request = False
 
         print_agent_header(self.jid.user)
         print_log(self.jid.user, f"{self.jid} is online.")
@@ -280,4 +366,4 @@ class CentralAgent(Agent):
         fsm.add_transition("COLLECT_PROPOSALS", "WAIT")
         fsm.add_transition("WAIT", "WAIT")
 
-        self.add_behaviour(fsm)
+        self.add_behaviour(fsm, self.combined_tmpl)
