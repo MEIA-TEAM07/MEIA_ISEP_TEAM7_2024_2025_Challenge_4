@@ -139,7 +139,7 @@ class CentralAgent(Agent):
                 if msg.sender: 
                     drone_jid = str(msg.sender)
                     if msg.metadata.get("ontology") == "drone_status_update" and msg.metadata.get("performative") == "inform":
-                        status = msg.body
+                        status = msg.body.split("|")[1] 
                         print_log(self.agent.jid.user, f"📊 Drone status update from {drone_jid.split('.')[0]}: {status}")
                         # Here you could implement logic to handle drone status updates
                         # For example, update internal state or notify field agents
@@ -155,8 +155,6 @@ class CentralAgent(Agent):
         async def on_start(self):
             print_agent_header(self.agent.jid.user)
             print_log(self.agent.jid.user, "🧠 Starting ContractNetManager...")
-            # Initialize request queue
-            self.agent.request_queue = deque()
         async def on_end(self):
             print_log(self.agent.jid.user, "✅ Contract negotiation finished.")
 
@@ -347,9 +345,6 @@ class CentralAgent(Agent):
         # Hardcoded drone lists (simple and reliable)
         self.vigilant_drones = ["vigilant1@localhost", "vigilant2@localhost"]
         self.payload_drones = ["payload1@localhost", "payload2@localhost", "payload3@localhost"]  # All 3 drones
-        
-        # Initialize request processing state
-        self.request_queue = deque()
 
         print_agent_header(self.jid.user)
         print_log(self.jid.user, f"{self.jid} is online.")
