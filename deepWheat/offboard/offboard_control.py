@@ -5,6 +5,7 @@ from spade.message import Message
 import asyncio
 from spade.behaviour import FSMBehaviour
 from offboard.offboard_ros_messenger import OffboardRosMessenger
+from utils.logger import print_log
 
 
 class OffboardControl:
@@ -132,6 +133,7 @@ class OffboardControl:
         if self.count == 16 and not self.mode_set:
             self.offboard_ros_messenger.set_offboard_mode(t)
             self.mode_set = True
+            print_log(self.agent_jid.user, "Ready for Takeoff")
 
     async def process_image(self):
 
@@ -150,12 +152,11 @@ class OffboardControl:
 
             # 2) Classify the cropped center
             label = disease_classification_service.classify_from_array(cropped)
-            print(f'Predicted disease: {label}')
+            if label != 'Healthy':
+                print_log(self.agent_jid.user, f'Disease Detected: {label}')
 
             try:
                 if label != 'Healthy':
-                    print("Sending disease alert to agent:", self.agent_jid)
-                    print(self.behaviour)
                     msg = Message(to=str(self.agent_jid))
                     msg.set_metadata("performative", "inform")
                     msg.set_metadata("ontology", "disease_alert")
@@ -219,19 +220,17 @@ class OffboardControl:
             if self.battery_level >= 100.0:
                 self.battery_level = 100.0
                 if self.task == 'recharge':
+                    print_log(self.agent_jid.user, "Battery Fully Recharged.")
                     self.change_from_recharge_to_task_on_hold()
-            else:
-                if(self.count % 10 == 0):
-                    print(f"Recharging battery: {self.battery_level:.2f}%")
         else:
             self.battery_level = self.battery_level - self.battery_usage
             if self.battery_level <= 0:
                 self.battery_level = 0
             if self.count % 100 == 0:
-                print(f"Battery level: {self.battery_level:.2f}%")
+                print_log(self.agent_jid.user, f"Current Battery Charge: {self.battery_level:.2f}%")
             if self.low_battery_threshold >= self.battery_level:
-                print("Battery low, heading to charging station")
                 if self.task != 'recharge':
+                    print_log(self.agent_jid.user, "Battery low, heading to charging station")
                     self.change_task_to_recharge()
 
     def set_variables_for_activity(self):
