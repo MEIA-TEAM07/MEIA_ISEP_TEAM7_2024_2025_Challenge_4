@@ -1,3 +1,4 @@
+import threading
 from rclpy.node import Node
 from offboard import disease_classification_service
 from spade.message import Message
@@ -34,6 +35,8 @@ class OffboardControl:
             self.current_z = 100.0
 
             self.offboard_ros_messenger = OffboardRosMessenger(self, node,drone_id)
+
+            self.unlocked = threading.Lock()
         except Exception as e:
             print(f"Error initializing OffboardControl: {e}")
 
@@ -96,8 +99,9 @@ class OffboardControl:
                     self.image_processing_started = True
 
                 is_last_waypoint = self.current_waypoint_index >= len(self.target_waypoints) - 1
-                if is_last_waypoint and self.unlocked == True:
-                    self.send_scan_complete()
+                with self.unlocked:
+                    if is_last_waypoint == True:
+                        self.send_scan_complete()
 
     def charging_callback(self, t):
         is_ready_to_charge = self.follow_charging_path(t)
@@ -133,31 +137,31 @@ class OffboardControl:
         if self.latest_image is None:
             print('No image')
             return
+        with self.unlocked:
         
-        self.unlocked = True
-        img = self.latest_image
-        h, w = img.shape[:2]
-        top    = int(0.3 * h)
-        bottom = int(0.7 * h)
-        left   = int(0.4 * w)
-        right  = int(0.6 * w)
-        cropped = img[top:bottom, left:right]
+            img = self.latest_image
+            h, w = img.shape[:2]
+            top    = int(0.3 * h)
+            bottom = int(0.7 * h)
+            left   = int(0.4 * w)
+            right  = int(0.6 * w)
+            cropped = img[top:bottom, left:right]
 
-        # 2) Classify the cropped center
-        label = disease_classification_service.classify_from_array(cropped)
-        print(f'Predicted disease: {label}')
+            # 2) Classify the cropped center
+            label = disease_classification_service.classify_from_array(cropped)
+            print(f'Predicted disease: {label}')
 
-        try:
-            if label != 'Healthy':
-                print("Sending disease alert to agent:", self.agent_jid)
-                print(self.behaviour)
-                msg = Message(to=str(self.agent_jid))
-                msg.set_metadata("performative", "inform")
-                msg.set_metadata("ontology", "disease_alert")
-                msg.body = f"{label}, {self.target_waypoints[self.current_waypoint_index][0]}, {self.target_waypoints[self.current_waypoint_index][1]}"
-                await self.behaviour.send(msg)
-        except Exception as e:
-            print(f"Error sending message to agent: {e}")
+            try:
+                if label != 'Healthy':
+                    print("Sending disease alert to agent:", self.agent_jid)
+                    print(self.behaviour)
+                    msg = Message(to=str(self.agent_jid))
+                    msg.set_metadata("performative", "inform")
+                    msg.set_metadata("ontology", "disease_alert")
+                    msg.body = f"{label}, {self.target_waypoints[self.current_waypoint_index][0]}, {self.target_waypoints[self.current_waypoint_index][1]}"
+                    await self.behaviour.send(msg)
+            except Exception as e:
+                print(f"Error sending message to agent: {e}")
     
     def send_scan_complete(self):
         self.task = 'idle'
@@ -172,32 +176,28 @@ class OffboardControl:
     
     def follow_scan_path(self, t):
         is_last_waypoint = self.current_waypoint_index >= len(self.target_waypoints) - 1
-        
-        if self.waypoint_reached == True and self.unlocked == True:
-            if is_last_waypoint == False:
-                self.waypoint_reached = False
-                self.unlocked = False
-                self.image_processing_started = False
-                self.waypoint_counter = 0
-                self.current_waypoint_index += 1
+        with self.unlocked:
+            if self.waypoint_reached == True:
+                if is_last_waypoint == False:
+                    self.waypoint_reached = False
+                    self.image_processing_started = False
+                    self.waypoint_counter = 0
+                    self.current_waypoint_index += 1
+                else:
+                    self.image_processing_started = False
+                    self.waypoint_reached = False
             else:
-                self.image_processing_started = False
-                self.waypoint_reached = False
-                self.unlocked = False
-        else:
-            wp = self.target_waypoints[self.current_waypoint_index]
-            x_diff, y_diff, z_diff = self.calculate_distance_to_point(wp)
+                wp = self.target_waypoints[self.current_waypoint_index]
+                x_diff, y_diff, z_diff = self.calculate_distance_to_point(wp)
 
-            if (x_diff < 0.03 and y_diff < 0.03):
-                if self.waypoint_counter >= 10:
-                    if self.current_waypoint_index == 0:
-                        self.unlocked = True
-                    self.waypoint_reached = True
-                self.waypoint_counter += 1
-            else:
-                self.waypoint_counter = 0
+                if (x_diff < 0.03 and y_diff < 0.03):
+                    if self.waypoint_counter >= 10:
+                        self.waypoint_reached = True
+                    self.waypoint_counter += 1
+                else:
+                    self.waypoint_counter = 0
 
-            self.offboard_ros_messenger.publish_setpoint(t, self.target_waypoints[self.current_waypoint_index])
+                self.offboard_ros_messenger.publish_setpoint(t, self.target_waypoints[self.current_waypoint_index])
 
     def follow_charging_path(self, t):
         if self.is_in_charging_waypoint():
@@ -239,7 +239,6 @@ class OffboardControl:
         self.mode_set = False
         self.armed = False
         self.altitude_reached = False
-        self.unlocked = False
         self.waypoint_reached = 0
         self.gimbal_pointed = False
 
@@ -250,7 +249,6 @@ class OffboardControl:
         self.mode_set = False
         self.armed = False
         self.altitude_reached = False
-        self.unlocked = False
         self.waypoint_reached = False
         self.current_waypoint_index = 0
         self.gimbal_pointed = False
