@@ -15,13 +15,24 @@ class CentralAgent(Agent):
 
     def __init__(self, jid, password):
         super().__init__(jid, password)
+        self.proposals = []
+        self.responders = []
         self.vigilant_drones = []
         self.payload_drones = []
         self.available_drones = ["vigilant1@localhost", "payload1@localhost"]  # All drones are initially available
         self.request_queue = deque()
         
+        self.proposal_lock = threading.Lock()  # Lock for proposal access
         self.reqlock = threading.Lock()
         self.dlock = threading.Lock()
+
+    def append_proposal(self, proposal):
+        with self.proposal_lock:
+            self.proposals.append(proposal)
+    
+    def clear_proposals(self):
+        with self.proposal_lock:
+            self.proposals.clear()
 
     def pop_request(self):
         with self.reqlock:
@@ -219,11 +230,11 @@ class CentralAgent(Agent):
                 cfp.body = field_data 
                 await self.send(cfp)
                 print_log(self.agent.jid.user, f"📤 Sent CFP to {drone.split('.')[0]} for {ontology} in field {field_data}")
-            self.agent.responders = drones
-            self.agent.proposals = []
             
             self.set("ontology", ontology)
             self.set("field_data", field_data)
+
+            self.agent.responders = drones
 
             self.set_next_state(STATE_COLLECT_PROPOSALS)
             return
@@ -248,19 +259,9 @@ class CentralAgent(Agent):
                             drone_name, battery, wind = msg.body.split("|")
                             score = evaluate_proposal(float(battery), float(wind))
                             print_log(self.agent.jid.user, f"📊 Proposal from {drone_name}: Battery={battery}%, Wind={wind}km/h, Score={score:.2f}")
-                            self.agent.proposals.append((sender, score, msg.body, drone_name))
+                            self.agent.append_proposal((sender, score, msg.body, drone_name))
                         except Exception as e:
                             print_log(self.agent.jid.user, f"⚠️ Malformed proposal from {sender}: {e}")
-                    
-                    elif msg_ontology in ["monitoring_request", "fertilization_request", "treatment_request"]:
-                        # Queue new field requests that arrive while collecting proposals
-                        request_data = {
-                            "ontology": msg_ontology,
-                            "field_data": msg.body,
-                            "field_agent": str(msg.sender)
-                        }
-                        self.agent.add_request(request_data)
-                        print_log(self.agent.jid.user, f"📋 Request queued while collecting proposals: {msg_ontology} (queue size: {len(self.agent.request_queue)})")
 
             print_log(self.agent.jid.user, f"📋 Collected {len(self.agent.proposals)} proposals from {len(self.agent.responders)} drones")
 
@@ -308,6 +309,7 @@ class CentralAgent(Agent):
                 print_log(self.agent.jid.user, "⚠️ No proposals received. All drones might be busy or recharging.")
 
             # Mark processing as complete
+            self.agent.clear_proposals()
             self.set_next_state(STATE_WAIT)
 
     # central_agent.py - Go back to the simple working approach with all bug fixes:
