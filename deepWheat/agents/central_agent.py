@@ -169,7 +169,10 @@ class CentralAgent(Agent):
     class SendCFP(State):
         async def run(self):
             print_log(self.agent.jid.user, f"📋 Processing queued request ({len(self.agent.request_queue)} in queue)")
+            print(self.agent.request_queue)
             request_data = self.agent.pop_request()
+            print(self.agent.request_queue)
+            self.set("request", request_data)
             if not request_data:
                 print_log(self.agent.jid.user, "⚠️ No request data found. Returning to WAIT state.")
                 self.set_next_state(STATE_WAIT)
@@ -304,6 +307,7 @@ class CentralAgent(Agent):
                 
                 print_log(self.agent.jid.user, f"❌ Sent rejections to {rejected_count} drones")
             else:
+                self.agent.add_request(self.get("request"))
                 print_log(self.agent.jid.user, "⚠️ No proposals received. All drones might be busy or recharging.")
 
             # Mark processing as complete
@@ -345,6 +349,9 @@ class CentralAgent(Agent):
         # Hardcoded drone lists (simple and reliable)
         self.vigilant_drones = ["vigilant1@localhost", "vigilant2@localhost"]
         self.payload_drones = ["payload1@localhost", "payload2@localhost", "payload3@localhost"]  # All 3 drones
+        
+        # Initialize request processing state
+        self.request_queue = deque()
 
         print_agent_header(self.jid.user)
         print_log(self.jid.user, f"{self.jid} is online.")

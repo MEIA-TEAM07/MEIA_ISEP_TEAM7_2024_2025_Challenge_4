@@ -59,8 +59,7 @@ class VigilantDroneAgent(Agent):
     class NegotiationBehaviour(CyclicBehaviour):
         async def run(self):
             if self.agent.fsm.current_state != "IDLE":
-                        print_log(self.agent.jid.user, f"🚁 Not in IDLE state — ignoring CFP.")
-                        return
+                return
             else:
                 msg = await self.receive(timeout=5)
                 if msg:
@@ -69,7 +68,7 @@ class VigilantDroneAgent(Agent):
 
                     if performative == "cfp":
                         if self.agent.recharging:
-                            print_log(self.agent.jid.user, f"🔌 Currently recharging — ignoring CFP.")
+                            print_log(self.agent.jid.user, f" Currently recharging — ignoring CFP.")
                             return
 
                         field_id = msg.body
@@ -86,25 +85,25 @@ class VigilantDroneAgent(Agent):
                         print(msg)
                         field_id, _ = msg.body.split("|")
                         self.agent.target_field = field_id
-                        print(f"🔍 Target field set to: {self.agent.target_field}")
-                        print_log(self.agent.jid.user, "🔥 Proposal accepted.")
+                        print(f" Target field set to: {self.agent.target_field}")
+                        print_log(self.agent.jid.user, " Proposal accepted.")
 
                     elif performative == "reject_proposal":
-                        print_log(self.agent.jid.user, "❌ Proposal rejected.")
+                        print_log(self.agent.jid.user, " Proposal rejected.")
 
                     # Handle registration acknowledgments
                     elif performative == "confirm" and ontology == "registration_ack":
-                        print_log(self.agent.jid.user, f"✅ Registration confirmed: {msg.body}")
+                        print_log(self.agent.jid.user, f" Registration confirmed: {msg.body}")
                     else:
                         try:
                             print(msg)
-                            field_id, _ = msg.body.split("|")
+                            fieldid,  = msg.body.split("|")
                             self.agent.target_field = field_id
-                            print(f"🔍 Target field set to: {self.agent.target_field}")
+                            print(f" Target field set to: {self.agent.target_field}")
                         except Exception as e:
-                            print_log(self.agent.jid.user, f"⚠️ Invalid message format. {e}")
+                            print_log(self.agent.jid.user, f" Invalid message format. {e}")
                             return
-
+                        
     class Idle(State):
         async def run(self):
             if self.agent.target_field:
