@@ -25,9 +25,10 @@ class OffboardControl:
             self.idle_waypoint = [-3.0, 7.0, self.flying_altitude]
             self.charging_station_waypoint = [0.0, 7.0, self.flying_altitude]
             self.battery_recharge_rate = 1.0
-            self.battery_usage = 0.10
+            self.battery_usage = 0.06
             self.low_battery_threshold = 30.0
-
+            self.idle_count = 0
+            self.turned_on = True
             self.current_x = 0.0
             self.current_y = 0.0
             self.current_z = 100.0
@@ -45,6 +46,7 @@ class OffboardControl:
         self.target_waypoints = waypoints
         self.current_waypoint_index = waypoint_index
         self.task = 'scan'
+        self.turned_on = True
 
         if(self.first_call):
             self.first_call = False
@@ -55,6 +57,9 @@ class OffboardControl:
             self.count += 1
             t = self.node.get_clock().now().nanoseconds
 
+            if self.turned_on == False:
+                return
+            
             self.manage_battery()
 
             if self.battery_level <= 0.0:
@@ -91,7 +96,6 @@ class OffboardControl:
                     self.image_processing_started = True
 
                 is_last_waypoint = self.current_waypoint_index >= len(self.target_waypoints) - 1
-                print(self.unlocked)
                 if is_last_waypoint and self.unlocked == True:
                     self.send_scan_complete()
 
@@ -102,10 +106,17 @@ class OffboardControl:
         return
 
     def idle_callback(self, t):
-        self.arm_and_set_offboard_mode(t)
-        tookoff = self.takeoff(t)
-        if tookoff == True:
-            self.offboard_ros_messenger.publish_setpoint(t,self.idle_waypoint)
+        is_in_waypoint = self.is_in_waypoint(self.idle_waypoint)
+        if(self.idle_count < 5):
+            self.arm_and_set_offboard_mode(t)
+            tookoff = self.takeoff(t)
+            if tookoff == True:
+                self.offboard_ros_messenger.publish_setpoint(t,self.idle_waypoint)
+            if is_in_waypoint:
+                self.idle_count += 1
+        else:
+            self.turned_on = False
+        
 
     def arm_and_set_offboard_mode(self, t):
         self.offboard_ros_messenger.publish_off_board_mode(t)
@@ -215,7 +226,7 @@ class OffboardControl:
             self.battery_level = self.battery_level - self.battery_usage
             if self.battery_level <= 0:
                 self.battery_level = 0
-            if self.count % 10 == 0:
+            if self.count % 100 == 0:
                 print(f"Battery level: {self.battery_level:.2f}%")
             if self.low_battery_threshold >= self.battery_level:
                 print("Battery low, heading to charging station")
@@ -246,6 +257,7 @@ class OffboardControl:
         self.waypoint_index_on_hold = 0
         self.charging_counter = 0
         self.image_processing_started = False
+        self.idle_count = 0
 
     def calculate_distance_to_point(self, point):
         x_diff = point[0] - self.current_x
@@ -271,8 +283,7 @@ class OffboardControl:
         self.task = 'recharge'
 
     def is_in_charging_waypoint(self):
-        x_diff, y_diff, z_diff = self.calculate_distance_to_point(self.charging_station_waypoint)
-        return x_diff < 0.2 and y_diff < 0.2
+        return self.is_in_waypoint(self.charging_station_waypoint)
     
     def takeoff(self, t):
         _, _, z_diff = self.calculate_distance_to_point([0, 0, self.flying_altitude])
@@ -281,3 +292,7 @@ class OffboardControl:
            return False
         else:
             return True
+        
+    def is_in_waypoint(self, waypoint):
+        x_diff, y_diff, z_diff = self.calculate_distance_to_point(waypoint)
+        return x_diff < 0.2 and y_diff < 0.2
