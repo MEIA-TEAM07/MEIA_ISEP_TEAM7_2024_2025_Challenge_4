@@ -45,16 +45,26 @@ class OffboardControl:
     def set_loop(self, loop):
         self.loop = loop
 
-    def scan(self, waypoints, waypoint_index=0):
+    def base_task(self, waypoints, waypoint_index, task_type):
         self.reset_variables()
         self.target_waypoints = waypoints
         self.current_waypoint_index = waypoint_index
-        self.task = 'scan'
+        self.task = task_type
         self.turned_on = True
 
         if(self.first_call):
             self.first_call = False
             self.scan_timer = self.node.create_timer(0.1, self.offboard_callback)
+
+    def scan(self, waypoints, waypoint_index=0):
+        self.base_task(waypoints, waypoint_index, 'scan')
+
+    def apply_fungicide(self, waypoints, waypoint_index=0):
+        self.base_task(waypoints, waypoint_index, 'fungicide')
+
+    def fertilize(self, waypoints, waypoint_index=0):
+        waypoints = self.adjust_waypoints_for_fertilization(waypoints)
+        self.base_task(waypoints, waypoint_index, 'fertilize')
 
     def offboard_callback(self):
         try:
@@ -69,9 +79,11 @@ class OffboardControl:
             if self.battery_level <= 0.0:
                 print("Battery depleted")
                 return
-
             if self.task == 'scan':
                 self.scan_callback(t)
+                return
+            elif self.task == 'fungicide' or self.task == 'fertilize':
+                self.fungicide_fertilize_callback(t, self.task)
                 return
             elif self.task == 'recharge':
                 self.charging_callback(t)
@@ -103,13 +115,25 @@ class OffboardControl:
                     is_last_waypoint = self.current_waypoint_index >= len(self.target_waypoints) - 1
                     if self.unlocked.locked() == False:
                         if is_last_waypoint == True:
-                            self.send_scan_complete()
+                            self.send_task_complete('scan')
 
     def charging_callback(self, t):
         is_ready_to_charge = self.follow_charging_path(t)
         if is_ready_to_charge == False:
             self.arm_and_set_offboard_mode(t)
         return
+    
+    def fungicide_fertilize_callback(self, t, task_type):
+        self.arm_and_set_offboard_mode(t)
+        tookoff = self.takeoff(t)
+        if tookoff == True:
+            if task_type == 'fungicide':
+                self.fungicide_path(t)
+            else:
+                self.fertilize_path(t)
+            is_last_waypoint = self.current_waypoint_index >= len(self.target_waypoints) - 1
+            if is_last_waypoint == True and self.waypoint_reached:
+                self.send_task_complete(task_type)
 
     def idle_callback(self, t):
         is_in_waypoint = self.is_in_waypoint(self.idle_waypoint)
@@ -165,14 +189,15 @@ class OffboardControl:
             except Exception as e:
                 print(f"Error sending message to agent: {e}")
     
-    def send_scan_complete(self):
+    def send_task_complete(self, task_string):
         self.task = 'idle'
         self.target_waypoints = []
         self.current_waypoint_index = 0
         msg = Message(to=str(self.agent_jid))
         msg.set_metadata("performative", "inform")
-        msg.set_metadata("ontology", "completed_scan")
+        msg.set_metadata("ontology", f"completed_{task_string}")
         msg.body = "Completed"
+        print(msg)
         asyncio.run_coroutine_threadsafe(self.behaviour.send(msg), self.loop)
         return
     
@@ -200,6 +225,53 @@ class OffboardControl:
                     self.waypoint_counter = 0
 
                 self.offboard_ros_messenger.publish_setpoint(t, self.target_waypoints[self.current_waypoint_index])
+
+    def fungicide_path(self, t):
+        is_last_waypoint = self.current_waypoint_index >= len(self.target_waypoints) - 1
+        if self.waypoint_reached == True:
+            if is_last_waypoint == False:
+                self.waypoint_reached = False
+                self.waypoint_counter = 0
+                self.current_waypoint_index += 1
+        else:
+            wp = self.target_waypoints[self.current_waypoint_index]
+            x_diff, y_diff, z_diff = self.calculate_distance_to_point(wp)
+
+            if (x_diff < 0.1 and y_diff < 0.1):
+                if self.waypoint_counter >= 3:
+                    self.waypoint_reached = True
+                self.waypoint_counter += 1
+            else:
+                self.waypoint_counter = 0
+
+            self.offboard_ros_messenger.publish_setpoint(t, self.target_waypoints[self.current_waypoint_index])
+
+    def fertilize_path(self, t):
+        is_last_waypoint = self.current_waypoint_index >= len(self.target_waypoints) - 1
+        even_index = self.current_waypoint_index % 2 == 0
+
+        if self.waypoint_reached:
+            if not is_last_waypoint:
+                self.waypoint_reached = False
+                self.waypoint_counter = 0
+                self.current_waypoint_index += 1
+        else:
+            wp = self.target_waypoints[self.current_waypoint_index]
+            x_diff, y_diff, z_diff = self.calculate_distance_to_point(wp)
+
+            if x_diff < 0.15 and y_diff < 0.15:
+                if even_index:
+                    if self.waypoint_counter >= 2:
+                        self.waypoint_reached = True
+                    self.waypoint_counter += 1
+                else:
+                    self.waypoint_reached = True
+            else:
+                self.waypoint_counter = 0
+
+            self.offboard_ros_messenger.publish_setpoint(t, self.target_waypoints[self.current_waypoint_index])
+
+
 
     def follow_charging_path(self, t):
         if self.is_in_charging_waypoint():
@@ -294,3 +366,14 @@ class OffboardControl:
     def is_in_waypoint(self, waypoint):
         x_diff, y_diff, z_diff = self.calculate_distance_to_point(waypoint)
         return x_diff < 0.2 and y_diff < 0.2
+    
+    def adjust_waypoints_for_fertilization(self, waypoints):
+        adjusted = waypoints.copy()
+        for i in range(1, len(waypoints), 2):
+            prev = waypoints[i-1]
+            curr = waypoints[i]
+            if prev[1] > curr[1]:  # Compare Y, not X
+                adjusted[i] = [curr[0], curr[1] - 1.5, curr[2]]
+            else:
+                adjusted[i] = [curr[0], curr[1] + 1.5, curr[2]]
+        return adjusted
