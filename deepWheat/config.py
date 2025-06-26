@@ -44,16 +44,19 @@ TYPE_DRONE_VIGILANT = "vigilant_drone"
 # SPADE settings
 
 # ALL ONTOLOGIES
-ONTOLOGY                   = "ontology" 
-ONTOLOGY_DRONE_REGISTRATION = "drone_registration"
-ONTOLOGY_DRONE_REGISTRATION_ACK = "registration_ack"
-ONTOLOGY_PESTICIDE         = "pesticide_request"
-LIST_OF_REQUEST_ONTOLOGIES = ["monitoring_request", "fertilization_request", "treatment_request"]
-REQUEST_ONTOLOGIES   = [
-    "monitoring_request",
-    "fertilization_request",
-    "treatment_request",
-]
+ONTOLOGY                                = "ontology" 
+ONTOLOGY_DRONE_REGISTRATION             = "drone_registration"
+ONTOLOGY_DRONE_REGISTRATION_ACK         = "registration_ack"
+ONTOLOGY_PESTICIDE                      = "pesticide_request"
+ONTOLOGY_TREATMENT                      = "treatment_request"
+ONTOLOGY_FERTILIZATION                  = "fertilization_request"
+ONTOLOGY_DISEASE_ALERT                  = "disease_alert"
+LIST_OF_REQUEST_ONTOLOGIES              = ["monitoring_request", "fertilization_request", "treatment_request","pesticide_request"]
+REQUEST_ONTOLOGIES                      = [
+                                        "monitoring_request",
+                                        "fertilization_request",
+                                        "treatment_request",
+                                        ]
 
 # ALL PERFORMATIVES 
 PERFORMATIVE               = "performative"
