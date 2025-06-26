@@ -19,9 +19,11 @@ from config import (BATTERY_LOW_THRESHOLD, BATTERY_RECHARGE_STEP, ONTOLOGY_DRONE
                     ONTOLOGY, PERFORMATIVE, PERFORMATIVE_PROPOSAL, LIST_OF_REQUEST_ONTOLOGIES)
 
 class PayloadDroneAgent(Agent):
-    def __init__(self, jid, password, ros):
+    def __init__(self, jid, password, ros, id):
         super().__init__(jid, password)
         self.ros_node = ros
+        self.id = id
+        self.jid = jid
 
     class TaskHandler(CyclicBehaviour):
         async def run(self):
@@ -171,8 +173,6 @@ class PayloadDroneAgent(Agent):
     async def setup(self):
         await super().setup()
         
-
-
         self.fsm = self.create_fsm()
         self.add_behaviour(self.fsm, self.tmpl)
 

@@ -38,20 +38,34 @@ class ROSNodeThread(threading.Thread):
         rclpy.shutdown()
 
 async def main():
-    ros_thread = ROSNodeThread()
-    ros_thread.start()
+    NUM_NODES_VIGILANT = 1
+    NUM_NODES_PAYLOAD = 1
 
-    while ros_thread.node is None:
-        time.sleep(0.1)  # Wait until node is created
+    for i in range(NUM_NODES_VIGILANT):
+        # Give each thread a unique name if your implementation supports it
+        ros_vigilant_thread = ROSNodeThread(name=f"node_vigilant{i}")
+        ros_vigilant_thread.start()
+
+    for i in range(NUM_NODES_PAYLOAD):
+        # Give each thread a unique name if your implementation supports it
+        ros_payload_thread = ROSNodeThread(name=f"node_payload{i}")
+        ros_payload_thread.start()
+
+    while ros_vigilant_thread.node is None:
+        time.sleep(0.1)
+
+    # Wait until this thread’s node is up and running
+    while ros_payload_thread.node is None:
+        time.sleep(0.1)
 
     drones = [
-        VigilantDroneAgent(f"vigilant{i}@localhost", "admin1234", ros_thread.node, i)
-        for i in range(1, 2)  # creates vigilant1 and vigilant2
+        VigilantDroneAgent(f"vigilant{i}@localhost", "admin1234", ros_vigilant_thread.node, i)
+        for i in range(1, 2)  # creates vigilant1
     ]
 
     payload_drones = [
-        PayloadDroneAgent(f"payload{i}@localhost", "admin1234")
-        for i in range(1, 4)  # creates payload1, payload2, and payload3
+        PayloadDroneAgent(f"payload{i}@localhost", "admin1234", ros_payload_thread.node, i + NUM_NODES_VIGILANT)
+        for i in range(1, 2)  # creates payload1
     ]
 
     field_agents = [
