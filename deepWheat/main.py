@@ -41,30 +41,19 @@ async def main():
     NUM_NODES_VIGILANT = 1
     NUM_NODES_PAYLOAD = 1
 
-    for i in range(NUM_NODES_VIGILANT):
-        # Give each thread a unique name if your implementation supports it
-        ros_vigilant_thread = ROSNodeThread(name=f"node_vigilant{i}")
-        ros_vigilant_thread.start()
+    ros_thread = ROSNodeThread()
+    ros_thread.start()
 
-    for i in range(NUM_NODES_PAYLOAD):
-        # Give each thread a unique name if your implementation supports it
-        ros_payload_thread = ROSNodeThread(name=f"node_payload{i}")
-        ros_payload_thread.start()
-
-    while ros_vigilant_thread.node is None:
-        time.sleep(0.1)
-
-    # Wait until this thread’s node is up and running
-    while ros_payload_thread.node is None:
-        time.sleep(0.1)
+    while ros_thread.node is None:
+        time.sleep(0.1)  # Wait until node is created
 
     drones = [
-        VigilantDroneAgent(f"vigilant{i}@localhost", "admin1234", ros_vigilant_thread.node, i)
+        VigilantDroneAgent(f"vigilant{i}@localhost", "admin1234", ros_thread.node, i)
         for i in range(1, 2)  # creates vigilant1
     ]
 
     payload_drones = [
-        PayloadDroneAgent(f"payload{i}@localhost", "admin1234", ros_payload_thread.node, i + NUM_NODES_VIGILANT)
+        PayloadDroneAgent(f"payload{i}@localhost", "admin1234", ros_thread.node, i + NUM_NODES_VIGILANT)
         for i in range(1, 2)  # creates payload1
     ]
 

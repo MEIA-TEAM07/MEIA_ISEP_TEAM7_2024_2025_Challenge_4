@@ -311,7 +311,9 @@ class CentralAgent(Agent):
                 
                 print_log(self.agent.jid.user, f"❌ Sent rejections to {rejected_count} drones")
             else:
-                self.agent.addleft_request(self.get("request"))
+                request = self.get("request")
+                print(request)
+                self.agent.addleft_request(request)
                 print_log(self.agent.jid.user, "⚠️ No proposals received. All drones might be busy or recharging.")
 
             # Mark processing as complete

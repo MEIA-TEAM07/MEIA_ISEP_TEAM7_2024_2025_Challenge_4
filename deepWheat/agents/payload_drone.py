@@ -15,14 +15,13 @@ from utils.field_map import shared_field_map
 from spade.behaviour import CyclicBehaviour, FSMBehaviour, State
 from config import (ONTOLOGY_DRONE_REGISTRATION_ACK, ONTOLOGY_FERTILIZATION, ONTOLOGY_TREATMENT, PERFORMATIVE_ACCEPT, PERFORMATIVE_CFP,
                     PERFORMATIVE_CONFIRM, PERFORMATIVE_INFORM, PERFORMATIVE_REJECT, ONTOLOGY_DISEASE_ALERT, ONTOLOGY, PERFORMATIVE,
-                    PERFORMATIVE_PROPOSAL, LIST_OF_REQUEST_ONTOLOGIES)
+                    PERFORMATIVE_PROPOSAL, LIST_OF_REQUEST_ONTOLOGIES, WIND_MAX, WIND_MIN)
 
 class PayloadDroneAgent(Agent):
     def __init__(self, jid, password, ros, id):
         super().__init__(jid, password)
         self.ros_node = ros
         self.id = id
-        self.jid = jid
 
     class TaskHandler(CyclicBehaviour):
         async def run(self):
@@ -153,7 +152,7 @@ class PayloadDroneAgent(Agent):
             self.set_next_state("IDLE")
 
     def create_fsm(self):
-        fsm = self.VigilantFSM()
+        fsm = self.PayloadFSM()
         fsm.agent = self
         fsm.add_state(name="IDLE", state=self.Idle(), initial=True)
         fsm.add_state(name="NAVIGATE", state=self.NavigateToField())
@@ -170,25 +169,29 @@ class PayloadDroneAgent(Agent):
         return fsm
 
     async def setup(self):
-        await super().setup()
-        
-        self.fsm = self.create_fsm()
-        self.add_behaviour(self.fsm, self.tmpl)
 
-        self.offboard_control = OffboardControl(self.ros_node, str(self.id), self.jid, self.fsm)
-        self.loop = asyncio.get_event_loop()
-        self.offboard_control.set_loop(self.loop)        
+        try:
+            await super().setup()
+            self.fsm = self.create_fsm()
+            self.add_behaviour(self.fsm)
 
-        self.agent.target_position = None
-        self.waypoint = None
-        self.target_field = None
-        self.payload = None
+            self.offboard_control = OffboardControl(self.ros_node, str(self.id), self.jid, self.fsm)
+            self.loop = asyncio.get_event_loop()
+            self.offboard_control.set_loop(self.loop)        
+            self.wind_speed = random.uniform(WIND_MIN, WIND_MAX)
+            self.battery_level = 100.0
+            self.target_position = None
+            self.waypoint = None
+            self.target_field = None
+            self.payload = None
 
-        print_agent_header(self.jid.user)
-        print_log(self.jid.user, f"{self.jid} is online.")
-        print_log(self.jid.user, f"🔧 Default payload set to: {self.payload}")
-        print_log(self.jid.user, f"🚁 PayloadDrone: Waiting for tasks... Current payload: {self.payload}")
+            print_agent_header(self.jid.user)
+            print_log(self.jid.user, f"{self.jid} is online.")
+            print_log(self.jid.user, f"🔧 Default payload set to: {self.payload}")
+            print_log(self.jid.user, f"🚁 PayloadDrone: Waiting for tasks... Current payload: {self.payload}")
 
 
 
-        self.add_behaviour(self.TaskHandler())
+            self.add_behaviour(self.TaskHandler())
+        except Exception as e:
+            print_log(self.jid.user, f"❗ Error during setup: {e}")
