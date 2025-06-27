@@ -105,3 +105,32 @@ def find_shortest_zigzag_path(waypoints, start_point):
             if matches and matches[0] not in path:
                 path.append(matches[0])
     return path
+
+def find_shortest_fungicide_path(waypoints, point, initial_position):
+    waypoints = get_adjacent_points(waypoints, point)
+    waypoints.insert(0, initial_position)
+    waypoints = find_shortest_path(waypoints)
+    waypoints.pop(0)
+    return waypoints
+
+def get_adjacent_points(points, point):
+    x, y, z = point
+    same_z = [p for p in points if p[2] == z and p != point]
+    result = [point]
+    
+    north = [p for p in same_z if p[0]==x and p[1]>y]
+    if north:
+        result.append(min(north, key=lambda p: p[1]-y))
+
+    south = [p for p in same_z if p[0]==x and p[1]<y]
+    if south:
+        result.append(max(south, key=lambda p: p[1]-y))
+
+    east = [p for p in same_z if p[1]==y and p[0]>x]
+    if east:
+        
+        result.append(min(east, key=lambda p: p[0]-x))
+    west = [p for p in same_z if p[1]==y and p[0]<x]
+    if west:
+        result.append(max(west, key=lambda p: p[0]-x))
+    return result
