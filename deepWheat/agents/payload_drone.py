@@ -15,7 +15,7 @@ from utils.field_map import shared_field_map
 from spade.behaviour import CyclicBehaviour, FSMBehaviour, State
 from config import (ONTOLOGY_DRONE_REGISTRATION_ACK, ONTOLOGY_FERTILIZATION, ONTOLOGY_TREATMENT, PERFORMATIVE_ACCEPT, PERFORMATIVE_CFP,
                     PERFORMATIVE_CONFIRM, PERFORMATIVE_INFORM, PERFORMATIVE_REJECT, ONTOLOGY_DISEASE_ALERT, ONTOLOGY, PERFORMATIVE,
-                    PERFORMATIVE_PROPOSAL, LIST_OF_REQUEST_ONTOLOGIES, WIND_MAX, WIND_MIN)
+                    PERFORMATIVE_PROPOSAL, LIST_OF_REQUEST_ONTOLOGIES, WIND_MAX, WIND_MIN ,ONTOLOGY_PESTICIDE)
 
 class PayloadDroneAgent(Agent):
     def __init__(self, jid, password, ros, id):
@@ -40,8 +40,9 @@ class PayloadDroneAgent(Agent):
                     proposal.set_metadata(PERFORMATIVE, PERFORMATIVE_PROPOSAL)
                     proposal.set_metadata(ONTOLOGY, ontology)
                     proposal.body = f"{self.agent.jid.user}|{self.agent.battery_level}|{self.agent.wind_speed:.2f}"
+                    print_log(self.agent.jid.user, f"Eu tou a enviar proposta para {proposal}")
                     await self.send(proposal)
-                    print_log(self.agent.jid.user, f"📤 Sent proposal for {ontology} at {field_info}")
+                    print_log(self.agent.jid.user, f"📤 Sent proposal for {ontology} at {field_info} by {self.agent.jid.user}")
 
                 elif performative == PERFORMATIVE_ACCEPT and ontology in LIST_OF_REQUEST_ONTOLOGIES:
                     field_info = msg.body
@@ -50,7 +51,7 @@ class PayloadDroneAgent(Agent):
                         field_id = field_info.split("|")[0]
                         self.agent.target_field = field_id
                         self.agent.payload = "fertilizer"
-                    elif ontology == ONTOLOGY_TREATMENT:
+                    elif ontology == ONTOLOGY_TREATMENT or ONTOLOGY_PESTICIDE:
                         x,y = field_info.split("|")[1:]
                         field_id = field_info.split("|")[0]
                         self.agent.target_field = field_id
@@ -91,30 +92,43 @@ class PayloadDroneAgent(Agent):
 
     class NavigateToField(State):
         async def run(self):
-            if self.agent.payload == 'treatment':
-                field_id = self.agent.target_field
-                print(field_id)
-                if self.agent.waypoint:
-                    self.target_waypoints = self.agent.waypoint 
-                    self.agent.waypoint = None 
-                    self.agent.offboard_control.apply_fungicide(self.target_waypoints)
+            try:
+                if self.agent.payload == 'treatment':
+                    print_log(self.agent.jid.user, f"DRONE ID {str(self.agent.id)}")
+                    field_id = self.agent.target_field
+                    print(field_id)
+                    if self.agent.target_position:
+                        target= self.agent.target_position[0]
+                        self.target_position = list(map(float, target.split(",")))
+                        self.target_position.append(self.agent.offboard_control.flying_altitude)
+                        self.agent.target_position = None 
+                        print_log(self.agent.jid.user, f"🧭 Navigating to field {field_id} with payload {self.agent.payload}- Waypoint {self.target_position}")
+                        self.target_waypoints = shared_field_map.return_plant_locations_by_field(field_id)
+                        print_log(self.agent.jid.user, f"Waypoints do mapa: {self.target_waypoints}")
+                        self.initial_position = [self.agent.offboard_control.current_x, self.agent.offboard_control.current_y, self.agent.offboard_control.flying_altitude]
+                        print_log(self.agent.jid.user, f"Posição inicial do drone: {self.initial_position}")
+                        self.target_waypoints = routing_service.find_shortest_fungicide_path(self.target_waypoints, self.target_position, self.initial_position)
+                        print_log(self.agent.jid.user, f"Waypoints do path: {self.target_waypoints}")
+                        self.agent.offboard_control.apply_fungicide(self.target_waypoints)
+                        print_log(self.agent.jid.user, f"GG tudo feito antes do treatment state")
+                        self.set_next_state("TREAT")
+                    else:
+                        print_log(self.agent.jid.user, f"🛬 No waypoint set for field {field_id} — returning to idle.")
+                        self.set_next_state("IDLE")
+                elif self.agent.payload == 'fertilize':
+                    field_id = self.agent.target_field
+                    print(field_id)
+                    self.target_waypoints = shared_field_map.return_plant_locations_by_field(field_id)
+                    print(self.target_waypoints)
+                    self.target_waypoints = routing_service.find_shortest_zigzag_path(self.target_waypoints,[self.agent.offboard_control.current_x, self.agent.offboard_control.current_y, self.agent.offboard_control.flying_altitude])
+                    self.target_waypoints.pop(0)
+                    self.agent.offboard_control.fertilize(self.target_waypoints)
                     print_log(self.agent.jid.user, f"🧭 Navigating to field {field_id} with payload {self.agent.payload}")
-                    self.set_next_state("TREAT")
+                    self.set_next_state("FERTILIZE")
                 else:
-                    print_log(self.agent.jid.user, f"🛬 No waypoint set for field {field_id} — returning to idle.")
                     self.set_next_state("IDLE")
-            elif self.agent.payload == 'fertilize':
-                field_id = self.agent.target_field
-                print(field_id)
-                self.target_waypoints = shared_field_map.return_plant_locations_by_field(field_id)
-                print(self.target_waypoints)
-                self.target_waypoints = routing_service.find_shortest_zigzag_path(self.target_waypoints,[self.agent.offboard_control.current_x, self.agent.offboard_control.current_y, self.agent.offboard_control.flying_altitude])
-                self.target_waypoints.pop(0)
-                self.agent.offboard_control.fertilize(self.target_waypoints)
-                print_log(self.agent.jid.user, f"🧭 Navigating to field {field_id} with payload {self.agent.payload}")
-                self.set_next_state("FERTILIZE")
-            else:
-                self.set_next_state("IDLE")
+            except Exception as e:
+                print(e)        
 
     class Fertilize(State):
         async def run(self):
@@ -138,7 +152,7 @@ class PayloadDroneAgent(Agent):
                 print(msg)
                 performative = msg.metadata.get("performative")
                 ontology = msg.metadata.get("ontology")
-                if performative == "inform" and ontology == "treatment_complete":
+                if performative == "inform" and ontology == "completed_fungicide":
                     print_log(self.agent.jid.user, f"✅ Treatment complete at {field_id}")
             self.set_next_state("RETURN")
 
@@ -162,6 +176,7 @@ class PayloadDroneAgent(Agent):
         fsm.add_transition("IDLE", "NAVIGATE")
         fsm.add_transition("NAVIGATE", "TREAT")
         fsm.add_transition("NAVIGATE", "FERTILIZE")
+        fsm.add_transition("NAVIGATE", "IDLE")
         fsm.add_transition("TREAT", "RETURN")
         fsm.add_transition("FERTILIZE", "RETURN")
         fsm.add_transition("RETURN", "IDLE")

@@ -28,11 +28,13 @@ class CentralAgent(Agent):
 
     def append_proposal(self, proposal):
         with self.proposal_lock:
+            print(f"Adicionei a proposta {proposal}")
             self.proposals.append(proposal)
     
     def clear_proposals(self):
         with self.proposal_lock:
-            self.proposals.clear()
+            print(f"Apaguei todas as propostas")
+            self.proposals = []
 
     def pop_request(self):
         with self.reqlock:
@@ -228,11 +230,12 @@ class CentralAgent(Agent):
                 return
             
         async def send_cfp(self, ontology, field_data, drones):
+            cfp = Message()
+            cfp.set_metadata("performative", "cfp")
+            cfp.set_metadata("ontology", ontology)
+            cfp.body = field_data 
             for drone in drones:
-                cfp = Message(to=drone)
-                cfp.set_metadata("performative", "cfp")
-                cfp.set_metadata("ontology", ontology)
-                cfp.body = field_data 
+                cfp.to = drone
                 await self.send(cfp)
                 print_log(self.agent.jid.user, f"📤 Sent CFP to {drone.split('.')[0]} for {ontology} in field {field_data}")
             
@@ -245,6 +248,25 @@ class CentralAgent(Agent):
             return
 
     class CollectProposals(State):
+        async def get_decision(self, proposals):
+            proposals.sort(key=lambda p: p[1], reverse=True)
+            best_drone = self.agent.proposals[0]
+            print(f"THIS IS THE BEST DRONE: {best_drone}")
+            print_log(self.agent.jid.user, f"🏆 Best proposal: {best_drone[3]} (score: {best_drone[1]:.2f})")
+            
+            # Send acceptance to best drone
+            decision = Message(to=best_drone[0])
+            decision.set_metadata("performative", "accept_proposal")
+            # Use correct ontology for drone accept
+            if self.ontology == "treatment_request":
+                decision.set_metadata("ontology", "pesticide_request")
+            else:
+                decision.set_metadata("ontology", self.ontology)
+            decision.body = self.get("field_data")
+            await self.send(decision)
+            print_log(self.agent.jid.user, f"✅ Assigned {self.ontology} from {decision.body} to {best_drone[3]}")
+            return best_drone
+
         async def run(self):
             self.ontology = self.get("ontology")
             print_log(self.agent.jid.user, f"📨 Collecting proposals for {self.ontology}...")
@@ -256,38 +278,42 @@ class CentralAgent(Agent):
                 if msg:
                     performative = msg.metadata.get(PERFORMATIVE)
                     msg_ontology = msg.metadata.get(ONTOLOGY)
-
+                    print_log(self.agent.jid.user, f"PROPOSTA: {msg}")
                     if performative == PERFORMATIVE_PROPOSAL:
                         # Handle proposal messages as before
-                        sender = str(msg.sender).split("/")[0]
+                        sender = str(msg.sender).split("/")[0]                        
                         try:
                             drone_name, battery, wind = msg.body.split("|")
                             score = evaluate_proposal(float(battery), float(wind))
                             print_log(self.agent.jid.user, f"📊 Proposal from {drone_name}: Battery={battery}%, Wind={wind}km/h, Score={score:.2f}")
                             self.agent.append_proposal((sender, score, msg.body, drone_name))
                         except Exception as e:
+                            self.agent.clear_proposals()
                             print_log(self.agent.jid.user, f"⚠️ Malformed proposal from {sender}: {e}")
 
             print_log(self.agent.jid.user, f"📋 Collected {len(self.agent.proposals)} proposals from {len(self.agent.responders)} drones")
 
             if self.agent.proposals:
                 # Sort proposals by score (best first)
-                self.agent.proposals.sort(key=lambda p: p[1], reverse=True)
-                best_drone = self.agent.proposals[0]
-                
-                print_log(self.agent.jid.user, f"🏆 Best proposal: {best_drone[3]} (score: {best_drone[1]:.2f})")
-                
-                # Send acceptance to best drone
-                decision = Message(to=best_drone[0])
-                decision.set_metadata("performative", "accept_proposal")
-                # Use correct ontology for drone accept
-                if self.ontology == "treatment_request":
-                    decision.set_metadata("ontology", "pesticide_request")
-                else:
-                    decision.set_metadata("ontology", self.ontology)
-                decision.body = self.get("field_data")
-                await self.send(decision)
-                print_log(self.agent.jid.user, f"✅ Assigned {self.ontology} to {best_drone[3]}")
+                proposals = None
+                best_drone = None
+                if self.ontology == "treatment_request" or self.ontology == "fertilization_request":
+                    valid_proposals = [p for p in self.agent.proposals if "payload" in str(p)]
+                    if not valid_proposals:
+                        print_log(self.agent.jid.user, "⚠️ Nenhuma proposta com 'payload' foi encontrada")
+                        return
+                    proposals = valid_proposals
+                    best_drone = await self.get_decision(proposals)     
+                elif self.ontology == "monitoring_request":
+                    valid_proposals = [p for p in self.agent.proposals if "vigilant" in str(p)]
+                    if not valid_proposals:
+                        print_log(self.agent.jid.user, "⚠️ Nenhuma proposta com 'vigilant' foi encontrada")
+                        return
+                    proposals = valid_proposals
+                    best_drone = await self.get_decision(proposals)                 
+                else:   
+                    print_log(self.agent.jid.user, "⚠️ Wrong Request refered in collection call")
+                    return
 
                 # Notify FieldAgent when a treatment is assigned
                 if self.ontology == "treatment_request":
@@ -326,35 +352,37 @@ class CentralAgent(Agent):
 
         self.tmplRegistration = Template()
         self.tmplStatusUpdate = Template()
-        self.tmplRequest = Template()
         self.tmplProposal = Template()
 
         self.tmplRegistration.set_metadata("ontology", "drone_registration")
         self.tmplStatusUpdate.set_metadata("ontology", "drone_status_update")
-        self.tmplRequest.set_metadata("performative", "request")
         # Templates para cada ontology
         ontologies = ["monitoring_request", "fertilization_request",
-                      "treatment_request", "pesticide_request"]
+                      "treatment_request", "pesticide_request", "treatment_assigned"]
         tmpl_onts = [Template().set_metadata("ontology", ont) or Template() for ont in ontologies]
 
         # Templates para cada performative
-        tmpl_cfp   = Template(); tmpl_cfp.set_metadata("performative", "cfp")
-        tmpl_prop  = Template(); tmpl_prop.set_metadata("performative", "proposal")
+        tmpl_cfp   = Template(); tmpl_cfp.set_metadata("performative", "cfp") ; tmpl_cfp.thread = None
+        tmpl_prop  = Template(); tmpl_prop.set_metadata("performative", "proposal") ; tmpl_prop.thread = None 
+        tmpl_inf   = Template(); tmpl_inf.set_metadata("performative", "inform") ; tmpl_inf.thread = None
+        tmpl_req   = Template(); tmpl_req.set_metadata("performative", "request") ; tmpl_req.thread = None
 
         # Combinações
-        any_ontology = tmpl_onts[0] | tmpl_onts[1] | tmpl_onts[2] | tmpl_onts[3]
-        any_perf     = tmpl_cfp | tmpl_prop
+        any_ontology = tmpl_onts[0] | tmpl_onts[1] | tmpl_onts[2] | tmpl_onts[3] | tmpl_onts[4]
+        any_perf     = tmpl_cfp | tmpl_prop | tmpl_inf
 
         self.combined_tmpl = any_ontology & any_perf
-        self.combined_tmpl2 = any_ontology & self.tmplRequest
+        self.combined_tmpl2 = any_ontology & tmpl_req
+
+        
         
         #self.add_behaviour(self.DroneRegistration(), template=self.tmplRegistration)
         self.add_behaviour(self.DroneStatusUpdate(), self.tmplStatusUpdate)
         self.add_behaviour(self.RequestReception(), self.combined_tmpl2)
 
         # Hardcoded drone lists (simple and reliable)
-        self.vigilant_drones = ["vigilant1@localhost", "vigilant2@localhost"]
-        self.payload_drones = ["payload1@localhost", "payload2@localhost", "payload3@localhost"]  # All 3 drones
+        self.vigilant_drones = ["vigilant1@localhost"]
+        self.payload_drones = ["payload1@localhost"]  # All 3 drones
         
         # Initialize request processing state
         self.request_queue = deque()
@@ -364,16 +392,16 @@ class CentralAgent(Agent):
         print_log(self.jid.user, f"🚁 Managing {len(self.vigilant_drones)} vigilant drones and {len(self.payload_drones)} payload drones")
 
         # Add contract net FSM with ALL necessary transitions
-        fsm = self.ContractNetManager()
-        fsm.add_state(name="WAIT", state=self.WaitRequest(), initial=True)
-        fsm.add_state(name="SEND_CFP", state=self.SendCFP())
-        fsm.add_state(name="COLLECT_PROPOSALS", state=self.CollectProposals())
+        self.fsm = self.ContractNetManager()
+        self.fsm.add_state(name="WAIT", state=self.WaitRequest(), initial=True)
+        self.fsm.add_state(name="SEND_CFP", state=self.SendCFP())
+        self.fsm.add_state(name="COLLECT_PROPOSALS", state=self.CollectProposals())
 
         # All transitions (including the critical missing one)
-        fsm.add_transition("WAIT", "SEND_CFP")
-        fsm.add_transition("SEND_CFP", "COLLECT_PROPOSALS")
-        fsm.add_transition("SEND_CFP", "WAIT")  # ← This was the original bug!
-        fsm.add_transition("COLLECT_PROPOSALS", "WAIT")
-        fsm.add_transition("WAIT", "WAIT")
+        self.fsm.add_transition("WAIT", "SEND_CFP")
+        self.fsm.add_transition("SEND_CFP", "COLLECT_PROPOSALS")
+        self.fsm.add_transition("SEND_CFP", "WAIT")  # ← This was the original bug!
+        self.fsm.add_transition("COLLECT_PROPOSALS", "WAIT")
+        self.fsm.add_transition("WAIT", "WAIT")
 
-        self.add_behaviour(fsm, self.combined_tmpl)
+        self.add_behaviour(self.fsm, self.combined_tmpl)

@@ -60,11 +60,12 @@ class VigilantDroneAgent(Agent):
 
     class NegotiationBehaviour(CyclicBehaviour):
         async def run(self):
-            if self.agent.fsm.current_state != "IDLE" and self.agent.flag == True:
-                return
-            else:
                 msg = await self.receive(timeout=5)
                 if msg:
+                    if self.agent.fsm.current_state != "IDLE" and self.agent.flag == True:
+                        print_log(self.agent.jid.user, f" Currently busy — ignoring CFP.")
+                        return
+                        
                     performative = msg.metadata.get("performative")
                     ontology = msg.metadata.get("ontology")
 
@@ -87,11 +88,11 @@ class VigilantDroneAgent(Agent):
                         print(msg)
                         field_id, _ = msg.body.split("|")
                         self.agent.target_field = field_id
-                        print(f" Target field set to: {self.agent.target_field}")
-                        print_log(self.agent.jid.user, " Proposal accepted.")
+
+                        print_log(self.agent.jid.user, f" Proposal accepted. Target field set to: {self.agent.target_field}")
 
                     elif performative == "reject_proposal":
-                        print_log(self.agent.jid.user, " Proposal rejected.")
+                        print_log(self.agent.jid.user, f" Proposal for {msg.body} rejected")
 
                     # Handle registration acknowledgments
                     elif performative == "confirm" and ontology == "registration_ack":
@@ -119,10 +120,12 @@ class VigilantDroneAgent(Agent):
             field_id = self.agent.target_field
             print(field_id)
             self.target_waypoints = shared_field_map.return_plant_locations_by_field(field_id)
-            self.target_waypoints.insert(0, [self.agent.offboard_control.current_x, self.agent.offboard_control.current_y, self.agent.offboard_control.flying_altitude])
+            #self.target_waypoints.insert(0, [self.agent.offboard_control.current_x, self.agent.offboard_control.current_y, self.agent.offboard_control.flying_altitude])
+            #print(self.target_waypoints)
+            #self.target_waypoints = routing_service.find_shortest_path(self.target_waypoints)
+            #self.target_waypoints.pop(0)
+            self.target_waypoints = routing_service.find_shortest_fungicide_path(self.target_waypoints, [6.49, 4.5, -1.3], [0,0,0])
             print(self.target_waypoints)
-            self.target_waypoints = routing_service.find_shortest_path(self.target_waypoints)
-            self.target_waypoints.pop(0)
             self.agent.offboard_control.scan(self.target_waypoints)
             print_log(self.agent.jid.user, f" Navigating to field: {field_id}")
             self.set_next_state("SCAN")

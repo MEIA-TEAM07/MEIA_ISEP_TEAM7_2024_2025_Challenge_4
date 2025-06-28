@@ -117,8 +117,8 @@ class FieldAgent(Agent):
                         x, y = map(float, xy.split(","))
                         mem = self.agent.memory[(field, x, y)]
                         
-                        if mem["diseased"]:
-                            if mem["being_treated"]:
+                        if mem["diseased"] == True:
+                            if mem["being_treated"] == True:
                                 print_log(agent_name, f"❗ Already treating disease @ {field} ({x},{y}). Ignoring duplicate alert.")
                             else:
                                 print_log(agent_name, f"🚨 Untreated disease @ {field} ({x},{y}) - requesting treatment")

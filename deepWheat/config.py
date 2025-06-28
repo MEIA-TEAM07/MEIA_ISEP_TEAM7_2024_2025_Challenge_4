@@ -15,8 +15,8 @@ WIND_MAX = 15
 FLIGHT_TIME = 2
 APPLICATION_TIME = 2
 
-PROPOSAL_TIMEOUT     = 8    # seconds to wait for proposals
-RECEIVE_TIMEOUT      = 1    # seconds to wait for message reception
+PROPOSAL_TIMEOUT     = 20    # seconds to wait for proposals
+RECEIVE_TIMEOUT      = 5    # seconds to wait for message reception
 
 # Grid size for all fields (can be made per-field if needed)
 FIELD_ROWS = 2
@@ -83,3 +83,8 @@ WEATHER_API_KEY = "bcbf7b4cabfaa6fa5678dc5c5ada8a96"
 WEATHER_LAT = 41.1496
 WEATHER_LON = -8.6109
 WEATHER_UPDATE_INTERVAL = 600
+
+OFF_SET_DRONES = [
+    {"drone_id": "1", "offset": [0.0, 0.0]},
+    {"drone_id": "2", "offset": [2.0, 0.0]}
+]
