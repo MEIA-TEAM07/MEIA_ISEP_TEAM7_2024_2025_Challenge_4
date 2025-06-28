@@ -112,7 +112,6 @@ class OffboardRosMessenger:
 
     def set_gimbal_pos(self):
         try:
-            print("Tried gimball")
             msg = Float64()
             msg.data = -1.5708
             self.gimbal_pitch_pub.publish(msg)

@@ -51,7 +51,7 @@ class FieldMap:
             return self.fields.get(field_id, {})
 
 
-    def return_plant_locations_by_field(self, field_id):
+    def return_plant_locations_by_field(self, field_id, flying_altitude = -1.3):
         """
         Return list of [x, y, z] waypoints for a given field name,
         using the already-loaded self.fields data. Z is fixed at -1.3.
@@ -63,7 +63,7 @@ class FieldMap:
                 raise ValueError(f"No data loaded for field ID {field_id}")
 
             # Build waypoints with fixed z coordinate -1.3
-            waypoints = [[x, y, -1.3] for (x, y) in coords.keys()]
+            waypoints = [[x, y, flying_altitude] for (x, y) in coords.keys()]
         return waypoints
 
 base_dir = Path(__file__).resolve().parent.parent  # adjust as needed

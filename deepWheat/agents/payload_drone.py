@@ -96,31 +96,26 @@ class PayloadDroneAgent(Agent):
                 if self.agent.payload == 'treatment':
                     print_log(self.agent.jid.user, f"DRONE ID {str(self.agent.id)}")
                     field_id = self.agent.target_field
-                    print(field_id)
                     if self.agent.target_position:
                         target= self.agent.target_position[0]
                         self.target_position = list(map(float, target.split(",")))
-                        self.target_position.append(self.agent.offboard_control.flying_altitude)
+                        flying_altitude = -2.3
+                        self.target_position.append(flying_altitude)
                         self.agent.target_position = None 
-                        print_log(self.agent.jid.user, f"🧭 Navigating to field {field_id} with payload {self.agent.payload}- Waypoint {self.target_position}")
-                        self.target_waypoints = shared_field_map.return_plant_locations_by_field(field_id)
-                        print_log(self.agent.jid.user, f"Waypoints do mapa: {self.target_waypoints}")
-                        self.initial_position = [self.agent.offboard_control.current_x, self.agent.offboard_control.current_y, self.agent.offboard_control.flying_altitude]
-                        print_log(self.agent.jid.user, f"Posição inicial do drone: {self.initial_position}")
+                        self.target_waypoints = shared_field_map.return_plant_locations_by_field(field_id, flying_altitude)
+
+                        self.initial_position = [self.agent.offboard_control.current_x, self.agent.offboard_control.current_y, flying_altitude]
                         self.target_waypoints = routing_service.find_shortest_fungicide_path(self.target_waypoints, self.target_position, self.initial_position)
-                        print_log(self.agent.jid.user, f"Waypoints do path: {self.target_waypoints}")
                         self.agent.offboard_control.apply_fungicide(self.target_waypoints)
-                        print_log(self.agent.jid.user, f"GG tudo feito antes do treatment state")
                         self.set_next_state("TREAT")
                     else:
                         print_log(self.agent.jid.user, f"🛬 No waypoint set for field {field_id} — returning to idle.")
                         self.set_next_state("IDLE")
                 elif self.agent.payload == 'fertilize':
                     field_id = self.agent.target_field
-                    print(field_id)
-                    self.target_waypoints = shared_field_map.return_plant_locations_by_field(field_id)
-                    print(self.target_waypoints)
-                    self.target_waypoints = routing_service.find_shortest_zigzag_path(self.target_waypoints,[self.agent.offboard_control.current_x, self.agent.offboard_control.current_y, self.agent.offboard_control.flying_altitude])
+                    flying_altitude = -3.3
+                    self.target_waypoints = shared_field_map.return_plant_locations_by_field(field_id), flying_altitude
+                    self.target_waypoints = routing_service.find_shortest_zigzag_path(self.target_waypoints,[self.agent.offboard_control.current_x, self.agent.offboard_control.current_y, flying_altitude])
                     self.target_waypoints.pop(0)
                     self.agent.offboard_control.fertilize(self.target_waypoints)
                     print_log(self.agent.jid.user, f"🧭 Navigating to field {field_id} with payload {self.agent.payload}")

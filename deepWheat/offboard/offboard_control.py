@@ -6,7 +6,7 @@ import asyncio
 from spade.behaviour import FSMBehaviour
 from offboard.offboard_ros_messenger import OffboardRosMessenger
 from utils.logger import print_log
-
+from config import OFF_SET_DRONES
 
 class OffboardControl:
     def __init__(self, node: Node, drone_id, agent_jid, behaviour: FSMBehaviour):
@@ -19,7 +19,7 @@ class OffboardControl:
             self.payload_level = 0
             self.payload_recharge_rate = 2
             self.payload_type = None
-            self.payload_usage = 4
+            self.payload_usage = 2
             self.task_status_on_hold = False
             
             # State
@@ -30,7 +30,13 @@ class OffboardControl:
             self.reset_variables()
             self.battery_level = 100.0
             self.first_call = True
-            self.idle_waypoint = [-3.0, 7.0, self.flying_altitude]
+            x = 0
+            y = 0
+            for offset in OFF_SET_DRONES:
+                if offset["drone_id"] == drone_id:
+                    x, y = offset['offset']
+
+            self.idle_waypoint = [x, y, self.flying_altitude]
             self.charging_station_waypoint = [0.0, 7.0, self.flying_altitude]
             self.battery_recharge_rate = 0.7
             self.battery_usage = 0.06
@@ -66,12 +72,15 @@ class OffboardControl:
             self.scan_timer = self.node.create_timer(0.1, self.offboard_callback)
 
     def scan(self, waypoints, waypoint_index=0):
+        self.update_flying_altitude(waypoints[1][2])
         self.base_task(waypoints, waypoint_index, 'scan')
 
     def apply_fungicide(self, waypoints, waypoint_index=0):
+        self.update_flying_altitude(waypoints[1][2])
         self.base_task(waypoints, waypoint_index, 'fungicide')
 
     def fertilize(self, waypoints, waypoint_index=0):
+        self.update_flying_altitude(waypoints[1][2])
         waypoints = self.adjust_waypoints_for_fertilization(waypoints)
         self.base_task(waypoints, waypoint_index, 'fertilize')
 
@@ -246,6 +255,11 @@ class OffboardControl:
         else:
             wp = self.target_waypoints[self.current_waypoint_index]
             x_diff, y_diff, z_diff = self.calculate_distance_to_point(wp)
+
+            if self.current_waypoint_index > 0:
+                self.payload_level -= self.payload_usage
+                if self.payload_level <= 0.0:
+                    self.payload_level = 0.0
 
             if (x_diff < 0.1 and y_diff < 0.1):
                 if self.waypoint_counter >= 3:
@@ -464,3 +478,9 @@ class OffboardControl:
             else:
                 adjusted[i] = [curr[0], curr[1] + 1.5, curr[2]]
         return adjusted
+    
+    def update_flying_altitude(self, new_altitude):
+        self.flying_altitude = new_altitude
+        self.idle_waypoint[2] = self.flying_altitude
+        self.charging_station_waypoint[2] = self.flying_altitude
+
