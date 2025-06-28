@@ -7,6 +7,7 @@ from offboard.offboard_control import OffboardControl
 from spade.agent import Agent
 from offboard import routing_service
 from spade.message import Message
+from spade.template import Template
 
 from utils.logger import print_log, print_agent_header
 from utils.battery import compute_battery_usage, drain_battery
@@ -182,8 +183,31 @@ class PayloadDroneAgent(Agent):
 
         try:
             await super().setup()
+
+            tmpl_fung_comp = Template().set_metadata("ontology", "completed_fungicide")
+            tmpl_fert_comp = Template().set_metadata("ontology", "completed_fertilize")
+
+            ontologies = ["fertilization_request",
+                      "treatment_request", "pesticide_request", "treatment_assigned", "drone_registration", "drone_status_update"]
+            tmpl_onts = [Template().set_metadata("ontology", ont) for ont in ontologies]
+
+            # Templates para cada performative
+            tmpl_cfp   = Template(); tmpl_cfp.set_metadata("performative", "cfp") ; tmpl_cfp.thread = None
+            tmpl_prop  = Template(); tmpl_prop.set_metadata("performative", "proposal") ; tmpl_prop.thread = None 
+            tmpl_inf   = Template(); tmpl_inf.set_metadata("performative", "inform") ; tmpl_inf.thread = None
+            tmpl_req   = Template(); tmpl_req.set_metadata("performative", "request") ; tmpl_req.thread = None
+
+            any_ontology = tmpl_onts[0] | tmpl_onts[1] | tmpl_onts[2] | tmpl_onts[3] | tmpl_onts[4] | tmpl_onts[5] 
+            any_performative = tmpl_cfp | tmpl_prop | tmpl_inf | tmpl_req
+
+            fsm_ontologies = tmpl_fung_comp | tmpl_fert_comp
+
+            self.fsm_tmpl = fsm_ontologies & tmpl_inf
+            self.tmplany = any_performative & any_ontology
+    
+
             self.fsm = self.create_fsm()
-            self.add_behaviour(self.fsm)
+            self.add_behaviour(self.fsm, self.fsm_tmpl)
 
             self.offboard_control = OffboardControl(self.ros_node, str(self.id), self.jid, self.fsm)
             self.loop = asyncio.get_event_loop()
@@ -202,6 +226,6 @@ class PayloadDroneAgent(Agent):
 
 
 
-            self.add_behaviour(self.TaskHandler())
+            self.add_behaviour(self.TaskHandler(), self.tmplany)
         except Exception as e:
             print_log(self.jid.user, f"❗ Error during setup: {e}")

@@ -137,7 +137,7 @@ class FieldAgent(Agent):
                         print_log(agent_name, f"✅ Treatment assigned for {field} ({x},{y})")
                         mem["being_treated"] = True
                         
-                    elif ontology == "treatment_complete":
+                    elif ontology == "completed_fungicide":
                         field, xy, _ = msg.body.split("|")
                         x, y = map(float, xy.split(","))
                         mem = self.agent.memory[(field, x, y)]
@@ -145,7 +145,7 @@ class FieldAgent(Agent):
                         mem["being_treated"] = False
                         mem["diseased"] = False
                         
-                    elif ontology == "fertilization_complete":
+                    elif ontology == "completed_fertilize":
                         field, xy, _ = msg.body.split("|")
                         x, y = map(float, xy.split(","))
                         print_log(agent_name, f"🌱 Fertilization complete @ {field} ({x},{y})")
