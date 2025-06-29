@@ -43,26 +43,11 @@ class VigilantDroneAgent(Agent):
         async def on_end(self):
             print_log(self.agent.jid.user, "🛬 Vigilant Drone FSM finished.")
 
-    class DroneStatusUpdate(CyclicBehaviour):
-        async def run(self):
-            if self.agent.fsm.current_state != "IDLE":
-                msg = Message(to="central@localhost")
-                msg.set_metadata("performative", "inform")
-                msg.set_metadata("ontology", "drone_status")
-                msg.body = f"{self.agent.jid.user}|unavailable"
-                await self.send(msg)
-            else:
-                msg = Message(to="central@localhost")
-                msg.set_metadata("performative", "inform")
-                msg.set_metadata("ontology", "drone_status")
-                msg.body = f"{self.agent.jid.user}|available"
-                await self.send(msg)
-
     class NegotiationBehaviour(CyclicBehaviour):
         async def run(self):
                 msg = await self.receive(timeout=5)
                 if msg:
-                    if self.agent.fsm.current_state != "IDLE" and self.agent.flag == True:
+                    if self.agent.flag == True:
                         print_log(self.agent.jid.user, f" Currently busy — ignoring CFP.")
                         return
                         
@@ -110,8 +95,15 @@ class VigilantDroneAgent(Agent):
     class Idle(State):
         async def run(self):
             if self.agent.target_field:
+                msg = Message(to="central@localhost")
+                msg.set_metadata("performative", "inform")
+                msg.set_metadata("ontology", "drone_status")
+                msg.body = f"{self.agent.jid.user}|unavailable"
+                await self.send(msg)
+
                 self.set_next_state("NAVIGATE")
             else:
+                self.agent.flag = False
                 self.set_next_state("IDLE")
 
     class NavigateToField(State):
@@ -125,7 +117,6 @@ class VigilantDroneAgent(Agent):
             #self.target_waypoints = routing_service.find_shortest_path(self.target_waypoints)
             #self.target_waypoints.pop(0)
             self.target_waypoints = routing_service.find_shortest_fungicide_path(self.target_waypoints, [6.49, 4.5, -1.3], [0,0,0])
-            print(self.target_waypoints)
             self.agent.offboard_control.scan(self.target_waypoints)
             print_log(self.agent.jid.user, f" Navigating to field: {field_id}")
             self.set_next_state("SCAN")
@@ -135,7 +126,6 @@ class VigilantDroneAgent(Agent):
             field_id = self.agent.target_field
             msg = await self.receive()
             if msg:
-                print(msg)
                 performative = msg.metadata.get("performative")
                 ontology = msg.metadata.get("ontology")
                 if performative == "inform" and ontology == "disease_alert":
@@ -167,18 +157,25 @@ class VigilantDroneAgent(Agent):
                     self.set_next_state("REPORT")
 
                 # Report if there's a disease and it's not already being treated
-             
-
-            self.set_next_state("SCAN")
+            else:
+                self.set_next_state("SCAN")
 
     class ReportFinding(State):
         async def run(self):
+            self.agent.flag = False
+            self.agent.target_field = None
             self.set_next_state("RETURN")
 
     class ReturnToBase(State):
         async def run(self):
             print_log(f"{self.agent.jid.user}", "🔙 Returning to base...")
             self.agent.flag = False
+            self.agent.target_field = None
+            msg = Message(to="central@localhost")
+            msg.set_metadata("performative", "inform")
+            msg.set_metadata("ontology", "drone_status")
+            msg.body = f"{self.agent.jid.user}|available"
+            await self.send(msg)
             self.set_next_state("IDLE")
 
     def consume_battery(self, base_cost=1.0):

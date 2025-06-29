@@ -1,13 +1,13 @@
 import asyncio
 import random
 from datetime import datetime
+import re
 
 from attrs import field
 from offboard.offboard_control import OffboardControl
 from spade.agent import Agent
 from offboard import routing_service
 from spade.message import Message
-from spade.template import Template
 
 from utils.logger import print_log, print_agent_header
 from utils.battery import compute_battery_usage, drain_battery
@@ -23,16 +23,25 @@ class PayloadDroneAgent(Agent):
         super().__init__(jid, password)
         self.ros_node = ros
         self.id = id
+        self.flag = False
+        self.flag_work = False
 
     class TaskHandler(CyclicBehaviour):
         async def run(self):
             msg = await self.receive(timeout=5)
             if msg:
+
                 performative = msg.metadata.get(PERFORMATIVE)
                 ontology = msg.metadata.get(ONTOLOGY)
+                
+                if self.agent.flag_work == True and ontology not in ["completed_fertilize", "completed_fungicide"] :
+                    print_log(self.agent.jid.user, f" Ontology Rejected: {ontology} Flag is: {self.agent.flag_work}")
+                    print_log(self.agent.jid.user, f" Currently busy — ignoring CFP.")
+                    return
 
                 if performative == PERFORMATIVE_CFP and ontology in LIST_OF_REQUEST_ONTOLOGIES:
-
+                    while self.agent.payload != None or self.agent.target_field != None:
+                        await asyncio.sleep(0.1)
                     field_info = msg.body
                     print_log(self.agent.jid.user, f"📩 Received CFP for {ontology} at {field_info}")
 
@@ -46,6 +55,8 @@ class PayloadDroneAgent(Agent):
                     print_log(self.agent.jid.user, f"📤 Sent proposal for {ontology} at {field_info} by {self.agent.jid.user}")
 
                 elif performative == PERFORMATIVE_ACCEPT and ontology in LIST_OF_REQUEST_ONTOLOGIES:
+                    while self.agent.payload != None or self.agent.target_field != None:
+                        await asyncio.sleep(0.1)
                     field_info = msg.body
                     print_log(self.agent.jid.user, f"✅ Proposal accepted for {ontology} at {field_info}")
                     if ontology == ONTOLOGY_FERTILIZATION:
@@ -69,7 +80,25 @@ class PayloadDroneAgent(Agent):
                 elif performative == PERFORMATIVE_INFORM and ontology == ONTOLOGY_DISEASE_ALERT:
                     # Not used for this agent but kept for compatibility
                     print_log(self.agent.jid.user, f"🦠 Alert received: {msg.body}")
-
+                elif performative == PERFORMATIVE_INFORM and ontology == "completed_fungicide":
+                    self.agent.flag = True
+                    mail = re.sub(r'_(\d+)$', r'\1@localhost', self.agent.target_field)
+                    position = self.agent.target_position[0]
+                    fi_msg = Message(to=mail)
+                    fi_msg.set_metadata("performative", "inform")
+                    fi_msg.set_metadata("ontology", "completed_fungicide")
+                    fi_msg.body = f"{self.agent.target_field}|{position}"  
+                    print_log(self.agent.jid.user, f"MESSSAGE FOR FIELD {mail}: {fi_msg}")
+                    await self.send(fi_msg)
+                elif performative == PERFORMATIVE_INFORM and ontology == "completed_fertilize":
+                    self.agent.flag = True
+                    mail = re.sub(r'_(\d+)$', r'\1@localhost', self.agent.target_field)
+                    fi_msg = Message(to=mail)
+                    fi_msg.set_metadata("performative", "inform")
+                    fi_msg.set_metadata("ontology", "completed_fertilize")
+                    fi_msg.body = f"{self.agent.target_field}"  
+                    print_log(self.agent.jid.user, f"MESSSAGE FOR FIELD {mail}: {fi_msg}")
+                    await self.send(fi_msg)
                 else:
                     print_log(self.agent.jid.user, f"⚠️ Unknown message received: {msg.metadata}, body: {msg.body}")
 
@@ -86,6 +115,13 @@ class PayloadDroneAgent(Agent):
             # Wait for a task assignment
             if self.agent.target_field:
                 print_log(self.agent.jid.user, f"🚀 Task assigned: {self.agent.target_field} ({self.agent.payload})")
+                self.agent.flag_work = True
+
+                msg = Message(to="central@localhost")               # receiver
+                msg.set_metadata("ontology", "drone_status_update") # match your ontology
+                msg.set_metadata("performative", "inform")          # match your performative
+                msg.body = f"{self.agent.jid}|unavailable"               # same body format
+                await self.send(msg)    
                 self.set_next_state("NAVIGATE")
             else:
                 await asyncio.sleep(3)  # Idle polling
@@ -102,7 +138,6 @@ class PayloadDroneAgent(Agent):
                         self.target_position = list(map(float, target.split(",")))
                         flying_altitude = -2.3
                         self.target_position.append(flying_altitude)
-                        self.agent.target_position = None 
                         self.target_waypoints = shared_field_map.return_plant_locations_by_field(field_id, flying_altitude)
 
                         self.initial_position = [self.agent.offboard_control.current_x, self.agent.offboard_control.current_y, flying_altitude]
@@ -112,10 +147,10 @@ class PayloadDroneAgent(Agent):
                     else:
                         print_log(self.agent.jid.user, f"🛬 No waypoint set for field {field_id} — returning to idle.")
                         self.set_next_state("IDLE")
-                elif self.agent.payload == 'fertilize':
+                elif self.agent.payload == 'fertilizer':
                     field_id = self.agent.target_field
                     flying_altitude = -3.3
-                    self.target_waypoints = shared_field_map.return_plant_locations_by_field(field_id), flying_altitude
+                    self.target_waypoints = shared_field_map.return_plant_locations_by_field(field_id, flying_altitude)
                     self.target_waypoints = routing_service.find_shortest_zigzag_path(self.target_waypoints,[self.agent.offboard_control.current_x, self.agent.offboard_control.current_y, flying_altitude])
                     self.target_waypoints.pop(0)
                     self.agent.offboard_control.fertilize(self.target_waypoints)
@@ -130,26 +165,20 @@ class PayloadDroneAgent(Agent):
         async def run(self):
             field_id = self.agent.target_field
             print_log(self.agent.jid.user, f"🌾 Starting full field fertilization for {field_id}")
-            msg = await self.receive()
-            if msg:
-                print(msg)
-                performative = msg.metadata.get("performative")
-                ontology = msg.metadata.get("ontology")
-                if performative == "inform" and ontology == "fertilization_complete":
-                    print_log(self.agent.jid.user, f"✅ Fertilization complete for {field_id}")
+            while self.agent.flag != True:
+                await asyncio.sleep(1)
+            print_log(self.agent.jid.user, f"✅ Fertilization complete at {field_id}")
+            self.agent.flag = False
             self.set_next_state("RETURN")
 
     class Treat(State):
         async def run(self):
             field_id = self.agent.target_field
             print_log(self.agent.jid.user, f"🧪 Applying pesticide at {field_id}")
-            msg = await self.receive()
-            if msg:
-                print(msg)
-                performative = msg.metadata.get("performative")
-                ontology = msg.metadata.get("ontology")
-                if performative == "inform" and ontology == "completed_fungicide":
-                    print_log(self.agent.jid.user, f"✅ Treatment complete at {field_id}")
+            while self.agent.flag != True:
+                await asyncio.sleep(1)
+            print_log(self.agent.jid.user, f"✅ Treatment complete at {field_id}")
+            self.agent.flag = False
             self.set_next_state("RETURN")
 
     class Return(State):
@@ -159,6 +188,14 @@ class PayloadDroneAgent(Agent):
             self.agent.target_position = None
             self.agent.waypoint = None
             self.agent.payload = None
+            self.agent.flag_work = False
+
+            msg = Message(to="central@localhost")               # receiver
+            msg.set_metadata("ontology", "drone_status_update") # match your ontology
+            msg.set_metadata("performative", "inform")          # match your performative
+            msg.body = f"{self.agent.jid}|available"               # same body format
+            await self.send(msg)    
+
             self.set_next_state("IDLE")
 
     def create_fsm(self):
@@ -183,31 +220,8 @@ class PayloadDroneAgent(Agent):
 
         try:
             await super().setup()
-
-            tmpl_fung_comp = Template().set_metadata("ontology", "completed_fungicide")
-            tmpl_fert_comp = Template().set_metadata("ontology", "completed_fertilize")
-
-            ontologies = ["fertilization_request",
-                      "treatment_request", "pesticide_request", "treatment_assigned", "drone_registration", "drone_status_update"]
-            tmpl_onts = [Template().set_metadata("ontology", ont) for ont in ontologies]
-
-            # Templates para cada performative
-            tmpl_cfp   = Template(); tmpl_cfp.set_metadata("performative", "cfp") ; tmpl_cfp.thread = None
-            tmpl_prop  = Template(); tmpl_prop.set_metadata("performative", "proposal") ; tmpl_prop.thread = None 
-            tmpl_inf   = Template(); tmpl_inf.set_metadata("performative", "inform") ; tmpl_inf.thread = None
-            tmpl_req   = Template(); tmpl_req.set_metadata("performative", "request") ; tmpl_req.thread = None
-
-            any_ontology = tmpl_onts[0] | tmpl_onts[1] | tmpl_onts[2] | tmpl_onts[3] | tmpl_onts[4] | tmpl_onts[5] 
-            any_performative = tmpl_cfp | tmpl_prop | tmpl_inf | tmpl_req
-
-            fsm_ontologies = tmpl_fung_comp | tmpl_fert_comp
-
-            self.fsm_tmpl = fsm_ontologies & tmpl_inf
-            self.tmplany = any_performative & any_ontology
-    
-
             self.fsm = self.create_fsm()
-            self.add_behaviour(self.fsm, self.fsm_tmpl)
+            self.add_behaviour(self.fsm)
 
             self.offboard_control = OffboardControl(self.ros_node, str(self.id), self.jid, self.fsm)
             self.loop = asyncio.get_event_loop()
@@ -226,6 +240,6 @@ class PayloadDroneAgent(Agent):
 
 
 
-            self.add_behaviour(self.TaskHandler(), self.tmplany)
+            self.add_behaviour(self.TaskHandler())
         except Exception as e:
             print_log(self.jid.user, f"❗ Error during setup: {e}")

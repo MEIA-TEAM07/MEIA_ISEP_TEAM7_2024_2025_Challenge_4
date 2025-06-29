@@ -21,29 +21,38 @@ class CentralAgent(Agent):
         self.payload_drones = []
         self.available_drones = ["vigilant1@localhost", "payload1@localhost"]  # All drones are initially available
         self.request_queue = deque()
-        
+        self.request_processed = None 
+
+
         self.proposal_lock = threading.Lock()  # Lock for proposal access
         self.reqlock = threading.Lock()
         self.dlock = threading.Lock()
 
     def append_proposal(self, proposal):
         with self.proposal_lock:
-            print(f"Adicionei a proposta {proposal}")
+            print_log(self.jid.user,f"Adicionei a proposta {proposal}")
             self.proposals.append(proposal)
+
+    def clear_last_proposal(self):
+        with self.proposal_lock:
+            proposta= self.proposals.pop()
+            print_log(self.jid.user, f"Removi ultima proposta {proposta}")
     
     def clear_proposals(self):
         with self.proposal_lock:
-            print(f"Apaguei todas as propostas")
+            print_log(self.jid.user, f"Apaguei todas as propostas")
             self.proposals = []
 
     def pop_request(self):
         with self.reqlock:
             if self.request_queue:
-                return self.request_queue.popleft()
+                request = self.request_queue.popleft()
+                return request
             return None
         
     def add_request(self, request_data):
         with self.reqlock:
+            print_log(self.jid.user, f"New request added '{request_data}' into queue")
             self.request_queue.append(request_data)
     
     def addleft_request(self, request_data):
@@ -52,7 +61,7 @@ class CentralAgent(Agent):
 
     def drone_available(self, drone_jid):
         with self.dlock:
-            if drone_jid not in self.available_drones and drone_jid in self.vigilant_drones and drone_jid in self.payload_drones:
+            if drone_jid not in self.available_drones and (drone_jid in self.vigilant_drones or drone_jid in self.payload_drones):
                 self.available_drones.append(drone_jid)
                 print_log(self.jid.user, f"✅ Drone available: {drone_jid.split('.')[0]}")
             elif drone_jid not in self.vigilant_drones and drone_jid not in self.payload_drones:
@@ -62,7 +71,8 @@ class CentralAgent(Agent):
 
     def drone_unavailable(self, drone_jid):
         with self.dlock:
-            if drone_jid in self.available_drones and drone_jid in self.vigilant_drones and drone_jid in self.payload_drones:
+            print_log(self.jid.user, f"drone_jid: {drone_jid} ; self.available_drones: {self.available_drones} ; self.vigilant_drones: {self.vigilant_drones} ; self.payload_drones: {self.payload_drones}")
+            if drone_jid in self.available_drones and (drone_jid in self.vigilant_drones or drone_jid in self.payload_drones):
                 self.available_drones.remove(drone_jid)
                 print_log(self.jid.user, f"❌ Drone unavailable: {drone_jid.split('.')[0]}")
             elif drone_jid not in self.vigilant_drones and drone_jid not in self.payload_drones:
@@ -174,10 +184,8 @@ class CentralAgent(Agent):
 
     class SendCFP(State):
         async def run(self):
-            print_log(self.agent.jid.user, f"📋 Processing queued request ({len(self.agent.request_queue)} in queue)")
-            print(self.agent.request_queue)
+
             request_data = self.agent.pop_request()
-            print(self.agent.request_queue)
             self.set("request", request_data)
             if not request_data:
                 print_log(self.agent.jid.user, "⚠️ No request data found. Returning to WAIT state.")
@@ -196,7 +204,6 @@ class CentralAgent(Agent):
                     await self.send_cfp(self.ontology, field_data, drones)
                     return
                 else:
-                    print_log(self.agent.jid.user, f"⚠️ No available {drone_type} drones for {self.ontology}. Cannot process monitoring request.")
                     self.agent.addleft_request(request_data)
                     self.set_next_state(STATE_WAIT)
                     return
@@ -208,7 +215,6 @@ class CentralAgent(Agent):
                     await self.send_cfp(self.ontology, field_data, drones)   
                     return
                 else:
-                    print_log(self.agent.jid.user, f"⚠️ No available {drone_type} drones for {self.ontology}. Cannot process fertilization request.")
                     self.agent.addleft_request(request_data)
                     self.set_next_state(STATE_WAIT)
                     return
@@ -220,7 +226,6 @@ class CentralAgent(Agent):
                     await self.send_cfp(self.ontology, field_data, drones)
                     return
                 else:
-                    print_log(self.agent.jid.user, f"⚠️ No available {drone_type} drones for {self.ontology}. Cannot process treatment request.")
                     self.agent.addleft_request(request_data)
                     self.set_next_state(STATE_WAIT)
                     return
@@ -268,6 +273,10 @@ class CentralAgent(Agent):
             return best_drone
 
         async def run(self):
+            request_data = self.get("request")
+            print_log(self.agent.jid.user, f"📋 left queued request to be processed ({len(self.agent.request_queue)} in queue)")
+            print_log(self.agent.jid.user, f"Actual queued of requests to process: {self.agent.request_queue}")
+            print_log(self.agent.jid.user, f"Actual request {request_data}")
             self.ontology = self.get("ontology")
             print_log(self.agent.jid.user, f"📨 Collecting proposals for {self.ontology}...")
             
@@ -279,7 +288,7 @@ class CentralAgent(Agent):
                     performative = msg.metadata.get(PERFORMATIVE)
                     msg_ontology = msg.metadata.get(ONTOLOGY)
                     print_log(self.agent.jid.user, f"PROPOSTA: {msg}")
-                    if performative == PERFORMATIVE_PROPOSAL:
+                    if performative == PERFORMATIVE_PROPOSAL and msg_ontology == self.ontology :
                         # Handle proposal messages as before
                         sender = str(msg.sender).split("/")[0]                        
                         try:
@@ -288,7 +297,7 @@ class CentralAgent(Agent):
                             print_log(self.agent.jid.user, f"📊 Proposal from {drone_name}: Battery={battery}%, Wind={wind}km/h, Score={score:.2f}")
                             self.agent.append_proposal((sender, score, msg.body, drone_name))
                         except Exception as e:
-                            self.agent.clear_proposals()
+                            self.agent.clear_last_proposal()
                             print_log(self.agent.jid.user, f"⚠️ Malformed proposal from {sender}: {e}")
 
             print_log(self.agent.jid.user, f"📋 Collected {len(self.agent.proposals)} proposals from {len(self.agent.responders)} drones")
@@ -301,6 +310,7 @@ class CentralAgent(Agent):
                     valid_proposals = [p for p in self.agent.proposals if "payload" in str(p)]
                     if not valid_proposals:
                         print_log(self.agent.jid.user, "⚠️ Nenhuma proposta com 'payload' foi encontrada")
+                        self.agent.addleft_request(request_data)
                         return
                     proposals = valid_proposals
                     best_drone = await self.get_decision(proposals)     
@@ -308,11 +318,13 @@ class CentralAgent(Agent):
                     valid_proposals = [p for p in self.agent.proposals if "vigilant" in str(p)]
                     if not valid_proposals:
                         print_log(self.agent.jid.user, "⚠️ Nenhuma proposta com 'vigilant' foi encontrada")
+                        self.agent.addleft_request(request_data)
                         return
                     proposals = valid_proposals
                     best_drone = await self.get_decision(proposals)                 
                 else:   
                     print_log(self.agent.jid.user, "⚠️ Wrong Request refered in collection call")
+                    self.agent.addleft_request(request_data)
                     return
 
                 # Notify FieldAgent when a treatment is assigned
@@ -337,10 +349,8 @@ class CentralAgent(Agent):
                 
                 print_log(self.agent.jid.user, f"❌ Sent rejections to {rejected_count} drones")
             else:
-                request = self.get("request")
-                print(request)
-                self.agent.addleft_request(request)
                 print_log(self.agent.jid.user, "⚠️ No proposals received. All drones might be busy or recharging.")
+                self.agent.addleft_request(request_data)
 
             # Mark processing as complete
             self.agent.clear_proposals()
@@ -358,7 +368,7 @@ class CentralAgent(Agent):
         self.tmplStatusUpdate.set_metadata("ontology", "drone_status_update")
         # Templates para cada ontology
         ontologies = ["monitoring_request", "fertilization_request",
-                      "treatment_request", "pesticide_request", "treatment_assigned"]
+                      "treatment_request", "pesticide_request", "treatment_assigned", "completed_fungicide"]
         tmpl_onts = [Template().set_metadata("ontology", ont) or Template() for ont in ontologies]
 
         # Templates para cada performative

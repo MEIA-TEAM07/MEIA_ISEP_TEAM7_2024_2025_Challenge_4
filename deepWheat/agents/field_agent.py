@@ -52,7 +52,7 @@ class FieldAgent(Agent):
                 agent_name = self.agent.jid.user
                 field_id = self.agent.field_id
                 today = date.today()
-
+                
                 # Only do the full initialization once per day
                 if not self.agent.initialized_today or self.agent.memory.get("last_init_date") != today:
                     print_agent_header(agent_name)
@@ -138,17 +138,17 @@ class FieldAgent(Agent):
                         mem["being_treated"] = True
                         
                     elif ontology == "completed_fungicide":
-                        field, xy, _ = msg.body.split("|")
+                        field, xy = msg.body.split("|")
+                        print_log(agent_name, f"{field} , {xy}")
                         x, y = map(float, xy.split(","))
                         mem = self.agent.memory[(field, x, y)]
-                        print_log(agent_name, f"🎉 Treatment COMPLETE @ {field} ({x},{y}) - plant is healthy!")
+                        print_log(agent_name, f"🎉 Treatment COMPLETE @ {field} ({x},{y}) - plant is treated!")
                         mem["being_treated"] = False
                         mem["diseased"] = False
                         
                     elif ontology == "completed_fertilize":
-                        field, xy, _ = msg.body.split("|")
-                        x, y = map(float, xy.split(","))
-                        print_log(agent_name, f"🌱 Fertilization complete @ {field} ({x},{y})")
+                        field = msg.body.split("|")
+                        print_log(agent_name, f"🌱 Fertilization complete at {field}")
                         
                         # Update last fertilized date when we get first fertilization complete message
                         if self.agent.memory["last_fertilized_date"] != today:
@@ -157,9 +157,6 @@ class FieldAgent(Agent):
                             
                     else:
                         print_log(agent_name, f"⚠️ Unknown message ontology: {ontology}")
-                    
-                    # Get next message with shorter timeout
-                    msg = await self.receive(timeout=0.1)
 
                 # Reset daily initialization flag at midnight (simplified check)
                 current_date = date.today()
@@ -182,6 +179,7 @@ class FieldAgent(Agent):
 
     async def setup(self):
         try:
+            print("Hello")
             agent_name = self.jid.user
             self.field_id = getattr(self, 'field_id', None)
             self.memory = self.initialize_field_memory()

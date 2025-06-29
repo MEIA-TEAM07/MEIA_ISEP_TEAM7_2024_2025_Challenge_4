@@ -7,7 +7,7 @@ RECHARGE_INTERVAL = 1
 RECHARGE_LOG = True
 
 GROWTH_SEASON_START = (3, 15)  # March 15
-GROWTH_SEASON_END = (6, 15)    # June 15
+GROWTH_SEASON_END = (7, 5)     # July 5
 DEFAULT_CROP_TYPE = "spring"
 
 WIND_MIN = 5
@@ -15,8 +15,8 @@ WIND_MAX = 15
 FLIGHT_TIME = 2
 APPLICATION_TIME = 2
 
-PROPOSAL_TIMEOUT     = 20    # seconds to wait for proposals
-RECEIVE_TIMEOUT      = 5    # seconds to wait for message reception
+PROPOSAL_TIMEOUT     = 0.5    # seconds to wait for proposals
+RECEIVE_TIMEOUT      = 1    # seconds to wait for message reception
 
 # Grid size for all fields (can be made per-field if needed)
 FIELD_ROWS = 2
@@ -35,7 +35,8 @@ FIELD_AGENT_ASSIGNMENT = {
 }
 FIELD_AGENTS = [
     {"agent_jid": "field1@localhost", "field_id": "field_1"},
-    {"agent_jid": "field2@localhost", "field_id": "field_2"}
+    {"agent_jid": "field2@localhost", "field_id": "field_2"},
+    {"agent_jid": "field3@localhost", "field_id": "field_3"}
 ]
 
 TYPE_DRONE_PAYLOAD = "payload_drone"

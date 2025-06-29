@@ -19,8 +19,11 @@ class OffboardControl:
             self.payload_level = 0
             self.payload_recharge_rate = 2
             self.payload_type = None
-            self.payload_usage = 2
+            self.payload_usage_fertilize = 3
+            self.payload_usage_fungicide = 1.5
             self.task_status_on_hold = False
+            self.counterdown = 0
+            self.charging_counter = 0
             
             # State
             self.task = None
@@ -217,6 +220,7 @@ class OffboardControl:
         msg.set_metadata("performative", "inform")
         msg.set_metadata("ontology", f"completed_{task_string}")
         msg.body = "Completed"
+        print_log(self.agent_jid.user, f"Offboard: Task Completed {msg}")
         asyncio.run_coroutine_threadsafe(self.behaviour.send(msg), self.loop)
         return
     
@@ -257,7 +261,7 @@ class OffboardControl:
             x_diff, y_diff, z_diff = self.calculate_distance_to_point(wp)
 
             if self.current_waypoint_index > 0:
-                self.payload_level -= self.payload_usage
+                self.payload_level -= self.payload_usage_fungicide
                 if self.payload_level <= 0.0:
                     self.payload_level = 0.0
 
@@ -299,7 +303,7 @@ class OffboardControl:
                     self.waypoint_reached = True
             else:
                 if even_index == False:
-                    self.payload_level -= self.payload_usage
+                    self.payload_level -= self.payload_usage_fertilize
 
                 self.waypoint_counter = 0
 
@@ -308,6 +312,7 @@ class OffboardControl:
 
 
     def follow_charging_path(self, t):
+        
         if self.is_in_charging_waypoint():
             if self.first_count == True:
                 self.first_count = False
@@ -316,6 +321,10 @@ class OffboardControl:
             if self.charging_counter < 10:
                 self.charging_counter += 1
                 self.offboard_ros_messenger.publish_setpoint(t, self.charging_station_waypoint)
+                return False
+            elif self.counterdown < 2:
+                self.counterdown  += 1
+                self.offboard_ros_messenger.publish_setpoint(t,[self.charging_station_waypoint[0], self.charging_station_waypoint[1], -1.0])
                 return False
             else:
                 return True
@@ -423,6 +432,7 @@ class OffboardControl:
         self.gimbal_pointed = False
         self.waypoint_index_on_hold = 0
         self.charging_counter = 0
+        self.counterdown = 0
         self.image_processing_started = False
         self.idle_count = 0
         self.charging_intentions = []
@@ -439,6 +449,7 @@ class OffboardControl:
     
     def change_from_recharge_to_task_on_hold(self):
         self.charging_counter = 0
+        self.counterdown = 0
         self.task = self.task_on_hold
         if self.task != 'idle':
             self.set_variables_for_activity()

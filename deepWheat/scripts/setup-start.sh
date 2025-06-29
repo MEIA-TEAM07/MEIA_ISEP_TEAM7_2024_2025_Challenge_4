@@ -4,9 +4,9 @@ USERS=(
   central
   field1
   field2
+  field3
   payload1
   payload2
-  payload3
   vigilant1
   vigilant2
 )
