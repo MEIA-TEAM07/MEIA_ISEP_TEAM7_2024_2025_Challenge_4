@@ -4,9 +4,10 @@ import multiprocessing
 import rclpy
 from rclpy.node import Node
 from px4_msgs.msg import OffboardControlMode, VehicleCommand
+from utils.logger import print_log
 
 
-def _signal_loop(drone_id: int, publish_interval: float, count_interval: float, stop_event: multiprocessing.Event):
+def _signal_loop(drone_id: int, publish_interval: float, count_interval: float, stop_event: multiprocessing.Event, agent_jid_user: str):
     rclpy.init()
     node = rclpy.create_node(f"offb_signal_{drone_id}")
     offboard_pub = node.create_publisher(OffboardControlMode, f"/px4_{drone_id}/fmu/in/offboard_control_mode", 10)
@@ -34,7 +35,7 @@ def _signal_loop(drone_id: int, publish_interval: float, count_interval: float, 
                 if count == 36 and not offboard:
                     send_offboard_mode(command_pub, drone_id, t)
                     offboard = True
-                    print(f"Drone {drone_id} is ready")
+                    print_log(agent_jid_user, f"Ready for takeoff")
 
                 # if count % 20 == 0:
                 #     node.get_logger().info(f"{t} Offboard 20 pings for drone {drone_id}")
@@ -76,9 +77,10 @@ def send_offboard_mode(offboard_pub, drone_id, t):
     offboard_pub.publish(msg)
 
 class OffboardSignal:
-    def __init__(self, drone_id, interval):
+    def __init__(self, drone_id, interval, agent_jid_user):
         try:
             multiprocessing.set_start_method('spawn', force=True)
+            self.agent_jid_user = agent_jid_user
             self.drone_id = drone_id
             self.interval = interval
             self._stop = multiprocessing.Event()
@@ -93,7 +95,7 @@ class OffboardSignal:
             self._stop.clear()
             self._proc = multiprocessing.Process(
                 target=_signal_loop,
-                args=(self.drone_id, self.interval, 0.6333,self._stop),
+                args=(self.drone_id, self.interval, 0.6333,self._stop,self.agent_jid_user),
             )
             self._proc.start()
         except Exception as e:

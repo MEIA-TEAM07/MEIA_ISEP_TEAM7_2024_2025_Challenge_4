@@ -64,7 +64,7 @@ class OffboardControl:
             self.waypoint_reached = False
 
             self.offboard_ros_messenger = OffboardRosMessenger(self, node,drone_id)
-            self.offboard_signal = OffboardSignal(drone_id, interval=0.01)
+            self.offboard_signal = OffboardSignal(drone_id, interval=0.01, agent_jid_user=self.agent_jid.user)
 
             self.unlocked = threading.Lock()
             
@@ -122,11 +122,10 @@ class OffboardControl:
             if self.battery_level <= 0.0:
                 if self.has_signal == True:
                     try:
-                        print(f"Killed signal for {self.agent_jid} because battery depleted {self.agent_jid}")
                         self.offboard_signal.stop()
                         self.has_signal = False
                     except Exception as e:
-                        print(f"{self.agent_jid} eu tentei matar uma merda que não devia. Erro: {e}" )
+                        print(f"{self.agent_jid} Tried to stop offboard signal and something went wrong! {e}" )
                 return
             if self.task == 'scan':
                 self.scan_callback(t)
@@ -164,8 +163,6 @@ class OffboardControl:
                             self.send_task_complete('scan')
 
     def charging_callback(self, t):
-        if self.drone_id == '4':
-            print(f"{self.agent_jid}: Run3: Task: {self.task}, Task on hold: {self.task_on_hold}, is_ready_to_charge: {self.is_ready_to_charge}")
         if self.is_ready_to_charge == False:
             self.is_ready_to_charge = self.follow_charging_path(t)
         return
@@ -188,18 +185,15 @@ class OffboardControl:
             if tookoff == True:
                 self.offboard_ros_messenger.publish_setpoint(t,self.idle_waypoint)
             if is_in_waypoint:
-                print(f"T({self.node.get_clock().now().nanoseconds - self.t_start}): {self.agent_jid} somei 1 idle_count {self.idle_count}")
                 self.idle_count += 1
         else:
             if self.has_signal == True:
                 try:
                     self.idle_count = 0
-                    print(f"T({self.node.get_clock().now().nanoseconds - self.t_start}): {self.agent_jid} idle_count {self.idle_count}")
-                    print(f"Matei no idle_callback um processo signal para {self.agent_jid}")
                     self.offboard_signal.stop()
                     self.has_signal = False
                 except Exception as e:
-                    print(f"{self.agent_jid} eu tentei matar uma merda que não devia. Erro: {e}" )
+                    print(f"{self.agent_jid} Tried to stop offboard signal and something went wrong! {e}" )
             self.turned_on = False
         
 
@@ -207,7 +201,6 @@ class OffboardControl:
         # self.offboard_ros_messenger.publish_off_board_mode(t)
         if self.has_signal == False:
             self.count = 0
-            print(f"{self.agent_jid} vai iniciar o processo de arm e offboard")
             self.turned_on = True
             self.offboard_signal.start()
             self.has_signal = True
@@ -361,19 +354,15 @@ class OffboardControl:
                 self.is_ready_to_charge = True
                 if self.has_signal == True:
                     try: 
-                        print(f"Matei no charging_path( um processo signal para {self.agent_jid}")
                         self.offboard_signal.stop()
                         self.has_signal = False
                     except Exception as e: 
-                        print(f"{self.agent_jid} eu tentei matar uma merda que não devia. Erro: {e}" )
+                        print(f"{self.agent_jid} Tried to stop offboard signal and something went wrong! {e}" )
                 return True
         if self.first_count == True:
-            print(f"T({self.node.get_clock().now().nanoseconds - self.t_start}): First count for {self.agent_jid} is True")
             self.count = 0
         self.first_count = False
         tookoff = self.takeoff(t)
-        if self.drone_id == '4':
-            print(f"{self.agent_jid}: Run4: tookoff: {tookoff}")
         if tookoff == True:
             self.offboard_ros_messenger.publish_setpoint(t, self.charging_station_waypoint)
         return False
@@ -563,7 +552,6 @@ class OffboardControl:
 
     def receive_charger_available(self):
         self.turned_on = True
-        print(f"{self.agent_jid} fui chamado em receive_charger_available Task: {self.task}, Task on hold: {self.task_on_hold}")
         self.count = 0
         #self.task = self.task_on_hold
         self.battery_flag = True

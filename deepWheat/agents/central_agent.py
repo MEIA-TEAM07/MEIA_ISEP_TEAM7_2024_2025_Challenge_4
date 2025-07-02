@@ -23,28 +23,28 @@ class CentralAgent(Agent):
         self.request_queue = deque()
         self.request_processed = None 
 
-        self.drones = {}                # drone_id -> nível de bateria
-        self.queue = deque()            # fila de espera
-        self.current = None             # drone em carregamento
+        self.drones = {}                
+        self.queue = deque()            
+        self.current = None             
 
 
-        self.proposal_lock = threading.Lock()  # Lock for proposal access
+        self.proposal_lock = threading.Lock()  
         self.reqlock = threading.Lock()
         self.dlock = threading.Lock()
 
     def append_proposal(self, proposal):
         with self.proposal_lock:
-            print_log(self.jid.user,f"Adicionei a proposta {proposal}")
+            print_log(self.jid.user,f"Added proposal {proposal}")
             self.proposals.append(proposal)
 
     def clear_last_proposal(self):
         with self.proposal_lock:
             proposta= self.proposals.pop()
-            print_log(self.jid.user, f"Removi ultima proposta {proposta}")
+            print_log(self.jid.user, f"Removed last proposal {proposta}")
     
     def clear_proposals(self):
         with self.proposal_lock:
-            print_log(self.jid.user, f"Apaguei todas as propostas")
+            print_log(self.jid.user, f"Deleted all proposals")
             self.proposals = []
 
     def pop_request(self):
@@ -94,7 +94,6 @@ class CentralAgent(Agent):
             perf = msg.metadata.get("performative")
             ont  = msg.metadata.get("ontology")
 
-            # Se é alerta de bateria
             if perf=="inform" and ont=="battery_alert":
                 print_log(self.agent.jid.user, f"Mensagem recebida, ontology={ont}")
                 print_log(self.agent.jid.user, f"{msg}")
@@ -103,49 +102,36 @@ class CentralAgent(Agent):
                 self.agent.drones[drone_id] = level
 
                 if drone_id == self.agent.current:
-                    print_log(self.agent.jid.user, f"Ignorando {drone_id}: já em carregamento")
                     return
                 if drone_id in self.agent.queue:
-                    print_log(self.agent.jid.user, f"Ignorando {drone_id}: já em fila")
+                    return
 
-
-                # Se ninguém carregar, começa já
                 if not self.agent.current:
                     await self._start_charging(drone_id)
                 else:
-                    # insere na fila, ordenando pela bateria
                     if drone_id not in self.agent.queue:
                         self.agent.queue.append(drone_id)
                         self._sort_queue()
 
-            # Se terminou de carregar
             elif perf=="inform" and ont=="battery_charged":
-                # libera carregamento atual
                 self.agent.current = None
-                # avança para próximo, se existir
                 if self.agent.queue:
-                    print_log(self.agent.jid.user, f"Seguinte drone a ser carregado:")
                     next_drone = self.agent.queue.popleft()
-                    print_log(self.agent.jid.user, f"{next_drone}")
+                    print_log(self.agent.jid.user, f"Next to charge: {next_drone}")
                     await self._start_charging(next_drone)
             
-            else:
-                print_log(self.agent.jid.user, f"Mensagem ignorada: ontology={ont}")
-
 
         def _sort_queue(self):
             ordered = sorted(self.agent.queue, key=lambda d: self.agent.drones[d])
             self.agent.queue = deque(ordered)
 
         async def _start_charging(self, drone_id):
-            # marca como a carregar e envia permissão
-            print_log(self.agent.jid.user, f"Autorizar carregamento de {drone_id}")
             self.agent.current = drone_id
             msg = Message(to=f"{drone_id}@localhost")
             msg.set_metadata("performative","inform")
             msg.set_metadata("ontology","charge_permission")
             await self.send(msg)
-            print_log(self.agent.jid.user, f"Autorizei carregamento de {drone_id}")
+            print_log(self.agent.jid.user, f"Charging authorized for {drone_id}")
 
     class DroneRegistration(CyclicBehaviour):
         """Handles drone registration and deregistration"""
@@ -352,7 +338,7 @@ class CentralAgent(Agent):
                 if msg:
                     performative = msg.metadata.get(PERFORMATIVE)
                     msg_ontology = msg.metadata.get(ONTOLOGY)
-                    print_log(self.agent.jid.user, f"PROPOSTA: {msg}")
+                    print_log(self.agent.jid.user, f"proposal: {msg}")
                     if performative == PERFORMATIVE_PROPOSAL and msg_ontology == self.ontology :
                         # Handle proposal messages as before
                         sender = str(msg.sender).split("/")[0]                        
@@ -374,7 +360,6 @@ class CentralAgent(Agent):
                 if self.ontology == "treatment_request" or self.ontology == "fertilization_request":
                     valid_proposals = [p for p in self.agent.proposals if "payload" in str(p)]
                     if not valid_proposals:
-                        print_log(self.agent.jid.user, "⚠️ Nenhuma proposta com 'payload' foi encontrada")
                         self.agent.addleft_request(request_data)
                         return
                     proposals = valid_proposals
@@ -382,13 +367,11 @@ class CentralAgent(Agent):
                 elif self.ontology == "monitoring_request":
                     valid_proposals = [p for p in self.agent.proposals if "vigilant" in str(p)]
                     if not valid_proposals:
-                        print_log(self.agent.jid.user, "⚠️ Nenhuma proposta com 'vigilant' foi encontrada")
                         self.agent.addleft_request(request_data)
                         return
                     proposals = valid_proposals
                     best_drone = await self.get_decision(proposals)                 
                 else:   
-                    print_log(self.agent.jid.user, "⚠️ Wrong Request refered in collection call")
                     self.agent.addleft_request(request_data)
                     return
 
@@ -431,18 +414,16 @@ class CentralAgent(Agent):
 
         self.tmplRegistration.set_metadata("ontology", "drone_registration")
         self.tmplStatusUpdate.set_metadata("ontology", "drone_status_update")
-        # Templates para cada ontology
+
         ontologies = ["monitoring_request", "fertilization_request",
                       "treatment_request", "pesticide_request", "treatment_assigned", "completed_fungicide"]
         tmpl_onts = [Template().set_metadata("ontology", ont) or Template() for ont in ontologies]
 
-        # Templates para cada performative
         tmpl_cfp   = Template(); tmpl_cfp.set_metadata("performative", "cfp") ; tmpl_cfp.thread = None
         tmpl_prop  = Template(); tmpl_prop.set_metadata("performative", "proposal") ; tmpl_prop.thread = None 
         tmpl_inf   = Template(); tmpl_inf.set_metadata("performative", "inform") ; tmpl_inf.thread = None
         tmpl_req   = Template(); tmpl_req.set_metadata("performative", "request") ; tmpl_req.thread = None
 
-        # Combinações
         any_ontology = tmpl_onts[0] | tmpl_onts[1] | tmpl_onts[2] | tmpl_onts[3] | tmpl_onts[4]
         any_perf     = tmpl_cfp | tmpl_prop | tmpl_inf
 
@@ -479,20 +460,16 @@ class CentralAgent(Agent):
         self.fsm.add_transition("COLLECT_PROPOSALS", "WAIT")
         self.fsm.add_transition("WAIT", "WAIT")
 
-        # Template para alertas de bateria
         battery_alert_template = Template()
         battery_alert_template.set_metadata("performative", "inform")
         battery_alert_template.set_metadata("ontology",    "battery_alert")
 
-        # Template para sinal de bateria carregada
         battery_charged_template = Template()
         battery_charged_template.set_metadata("performative", "inform")
         battery_charged_template.set_metadata("ontology",    "battery_charged")
 
-        # Se quiseres um só template que aceite ambos:
         combined_template = battery_alert_template | battery_charged_template
 
-        # Exemplo de registo no agente:
         self.add_behaviour(self.DroneQueueBehaviour(), combined_template)
 
 

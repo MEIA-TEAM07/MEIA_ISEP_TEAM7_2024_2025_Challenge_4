@@ -44,14 +44,14 @@ class PayloadDroneAgent(Agent):
                     print_log(self.agent.jid.user, f"Battery proposal: {proposal}")
                     await self.send(proposal)
                 elif performative == PERFORMATIVE_INFORM and ontology == "charge_permission":
-                    print_log(self.agent.jid.user, f"Permissão de carregamento")
+                    print_log(self.agent.jid.user, f"Charging permission received.")
                     self.agent.offboard_control.receive_charger_available()
                 elif performative == PERFORMATIVE_INFORM and ontology == "battery_charged":
                     inform = Message(to="central@localhost")
                     inform.set_metadata(PERFORMATIVE, PERFORMATIVE_INFORM)
                     inform.set_metadata(ONTOLOGY, ontology)
                     inform.body = f"{self.agent.jid.user}|{self.agent.offboard_control.battery_level}"
-                    print_log(self.agent.jid.user, f"BATERIA CARREGADA: {inform}")
+                    print_log(self.agent.jid.user, f"Battery Charged: {inform}")
                     await self.send(inform)
                 else:
                     print(f"{self.agent.jid}: BatteryHandler received message: {msg}")
@@ -270,9 +270,6 @@ class PayloadDroneAgent(Agent):
             print_log(self.jid.user, f"🚁 PayloadDrone: Waiting for tasks... Current payload: {self.payload}")
 
 
-            # Assumindo que PERFORMATIVE_INFORM, ONTOLOGY, etc. já estão definidos
-
-            # Templates individuais
             t_alert = Template()
             t_alert.set_metadata(PERFORMATIVE, PERFORMATIVE_INFORM)
             t_alert.set_metadata(ONTOLOGY, "battery_alert")
@@ -285,10 +282,8 @@ class PayloadDroneAgent(Agent):
             t_charged.set_metadata(PERFORMATIVE, PERFORMATIVE_INFORM)
             t_charged.set_metadata(ONTOLOGY, "battery_charged")
 
-            # Combina com OR para criar um único filtro
             battery_template = t_alert | t_permission | t_charged
 
-            # Depois, ao registar o behaviour:
             self.add_behaviour(self.BatteryHandler(), battery_template)
 
             self.add_behaviour(self.TaskHandler())
