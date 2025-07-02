@@ -87,5 +87,7 @@ WEATHER_UPDATE_INTERVAL = 600
 
 OFF_SET_DRONES = [
     {"drone_id": "1", "offset": [-3.0, 7.0]},
-    {"drone_id": "2", "offset": [-5.0, 7.0]}
+    {"drone_id": "2", "offset": [-3.0, -7.0]},
+    {"drone_id": "3", "offset": [-6.0, 7.0]},
+    {"drone_id": "4", "offset": [-6.0, -7.0]},
 ]

@@ -179,7 +179,6 @@ class FieldAgent(Agent):
 
     async def setup(self):
         try:
-            print("Hello")
             agent_name = self.jid.user
             self.field_id = getattr(self, 'field_id', None)
             self.memory = self.initialize_field_memory()

@@ -1,9 +1,11 @@
 import threading
+import time
 from rclpy.node import Node
 from offboard import disease_classification_service
 from spade.message import Message
 import asyncio
 from spade.behaviour import FSMBehaviour
+from offboard.offboard_signal import OffboardSignal
 from offboard.offboard_ros_messenger import OffboardRosMessenger
 from utils.logger import print_log
 from config import OFF_SET_DRONES
@@ -11,6 +13,7 @@ from config import OFF_SET_DRONES
 class OffboardControl:
     def __init__(self, node: Node, drone_id, agent_jid, behaviour: FSMBehaviour):
         try:
+            self.has_signal = False
             self.node = node
             self.agent_jid = agent_jid
             self.behaviour = behaviour
@@ -24,6 +27,10 @@ class OffboardControl:
             self.task_status_on_hold = False
             self.counterdown = 0
             self.charging_counter = 0
+            self.battery_flag = False
+            self.t_start = self.node.get_clock().now().nanoseconds
+
+            self.is_ready_to_charge = False
             
             # State
             self.task = None
@@ -53,8 +60,10 @@ class OffboardControl:
             self.waypoint_reached = False
 
             self.offboard_ros_messenger = OffboardRosMessenger(self, node,drone_id)
+            self.offboard_signal = OffboardSignal(drone_id, interval=0.01)
 
             self.unlocked = threading.Lock()
+            
         except Exception as e:
             print(f"Error initializing OffboardControl: {e}")
 
@@ -85,20 +94,24 @@ class OffboardControl:
     def fertilize(self, waypoints, waypoint_index=0):
         self.update_flying_altitude(waypoints[1][2])
         waypoints = self.adjust_waypoints_for_fertilization(waypoints)
+        
         self.base_task(waypoints, waypoint_index, 'fertilize')
 
     def offboard_callback(self):
         try:
+            if self.task != 'recharge' and self.task != 'idle':
+                self.task_on_hold = self.task
             self.count += 1
             t = self.node.get_clock().now().nanoseconds
-
-            if self.turned_on == False:
+            if self.battery_flag == True:
+                self.task = 'recharge'
+            if self.turned_on == False and self.task != 'recharge':
                 return
             if self.task_on_hold == 'scan':
                 self.manage_battery()
             else:
                 self.manage_payload_and_battery()
-
+            
             if self.battery_level <= 0.0:
                 print_log(self.agent_jid.user, "Battery depleted.")
                 return
@@ -120,12 +133,11 @@ class OffboardControl:
 
     def scan_callback(self, t):
 
-        self.arm_and_set_offboard_mode(t)
-
         if self.mode_set and not self.gimbal_pointed:
             self.offboard_ros_messenger.set_gimbal_pos()
 
         tookoff = self.takeoff(t)
+            
         if tookoff == True:
             if self.unlocked.locked() == False:
                 self.follow_scan_path(t)
@@ -141,13 +153,11 @@ class OffboardControl:
                             self.send_task_complete('scan')
 
     def charging_callback(self, t):
-        is_ready_to_charge = self.follow_charging_path(t)
-        if is_ready_to_charge == False:
-            self.arm_and_set_offboard_mode(t)
+        if self.is_ready_to_charge == False:
+            self.is_ready_to_charge = self.follow_charging_path(t)
         return
     
     def fungicide_fertilize_callback(self, t, task_type):
-        self.arm_and_set_offboard_mode(t)
         tookoff = self.takeoff(t)
         if tookoff == True:
             if task_type == 'fungicide':
@@ -160,27 +170,31 @@ class OffboardControl:
 
     def idle_callback(self, t):
         is_in_waypoint = self.is_in_waypoint(self.idle_waypoint)
-        if(self.idle_count < 5):
-            self.arm_and_set_offboard_mode(t)
+        if(self.idle_count < 35):
             tookoff = self.takeoff(t)
             if tookoff == True:
                 self.offboard_ros_messenger.publish_setpoint(t,self.idle_waypoint)
             if is_in_waypoint:
                 self.idle_count += 1
         else:
+            if self.has_signal == True:
+                try:
+                    print(f"Matei no idle_callback um processo signal para {self.agent_jid}")
+                    self.offboard_signal.stop()
+                    self.has_signal = False
+                except Exception as e:
+                    print(f"{self.agent_jid} eu tentei matar uma merda que não devia. Erro: {e}" )
             self.turned_on = False
         
 
     def arm_and_set_offboard_mode(self, t):
-        self.offboard_ros_messenger.publish_off_board_mode(t)
-
-        if self.count == 1 and not self.armed:
-            self.offboard_ros_messenger.arm(t)
-            self.armed = True
-        if self.count == 16 and not self.mode_set:
-            self.offboard_ros_messenger.set_offboard_mode(t)
-            self.mode_set = True
-            print_log(self.agent_jid.user, "Ready for Takeoff")
+        # self.offboard_ros_messenger.publish_off_board_mode(t)
+        if self.has_signal == False:
+            self.count = 0
+            print(f"{self.agent_jid} vai iniciar o processo de arm e offboard")
+            self.turned_on = True
+            self.offboard_signal.start()
+            self.has_signal = True
 
     async def process_image(self):
 
@@ -312,7 +326,6 @@ class OffboardControl:
 
 
     def follow_charging_path(self, t):
-        
         if self.is_in_charging_waypoint():
             if self.first_count == True:
                 self.first_count = False
@@ -322,12 +335,23 @@ class OffboardControl:
                 self.charging_counter += 1
                 self.offboard_ros_messenger.publish_setpoint(t, self.charging_station_waypoint)
                 return False
-            elif self.counterdown < 2:
+            elif self.counterdown <7 :
                 self.counterdown  += 1
                 self.offboard_ros_messenger.publish_setpoint(t,[self.charging_station_waypoint[0], self.charging_station_waypoint[1], -1.0])
                 return False
             else:
+                self.is_ready_to_charge = True
+                if self.has_signal == True:
+                    try: 
+                        print(f"Matei no charging_path( um processo signal para {self.agent_jid}")
+                        self.offboard_signal.stop()
+                        self.has_signal = False
+                    except Exception as e: 
+                        print(f"{self.agent_jid} eu tentei matar uma merda que não devia. Erro: {e}" )
                 return True
+        if self.first_count == True:
+            print(f"T({self.node.get_clock().now().nanoseconds - self.t_start}): First count for {self.agent_jid} is True")
+            self.count = 0
         self.first_count = False
         tookoff = self.takeoff(t)
         if tookoff == True:
@@ -342,6 +366,7 @@ class OffboardControl:
                 self.battery_level = 100.0
                 if self.task == 'recharge':
                     print_log(self.agent_jid.user, "Battery Fully Recharged.")
+                    self.already_charged()
                     self.change_from_recharge_to_task_on_hold()
         else:
             self.battery_level = self.battery_level - self.battery_usage
@@ -352,7 +377,7 @@ class OffboardControl:
             if self.low_battery_threshold >= self.battery_level:
                 if self.task != 'recharge':
                     print_log(self.agent_jid.user, "Battery low, heading to charging station")
-                    self.change_task_to_recharge()
+                    self.send_charing_intention()
 
     def manage_payload_and_battery(self):
         if self.is_in_charging_position() == True:
@@ -381,6 +406,7 @@ class OffboardControl:
                         print_log(self.agent_jid.user, "Battery Fully Recharged")
                     if(self.payload_level >= 100):
                         print_log(self.agent_jid.user, "Payload Filled")
+                    self.already_charged()
                     self.change_from_recharge_to_task_on_hold()
         else:
             self.battery_level = self.battery_level - self.battery_usage
@@ -410,8 +436,7 @@ class OffboardControl:
                     elif has_to_change_payload == True:
                         self.charging_intentions.append('payload')
                         print_log(self.agent_jid.user, "Heading to charging station to swap payload.")
-                    print(self.charging_intentions)
-                    self.change_task_to_recharge()
+                    self.send_charing_intention()
 
     def set_variables_for_activity(self):
         self.count = 0
@@ -461,13 +486,15 @@ class OffboardControl:
         if self.task != 'recharge':
             if self.task == 'fertilize':
                 self.task_status_on_hold = True
-            self.task_on_hold = self.task
+            if self.task != 'idle':
+                self.task_on_hold = self.task
         self.task = 'recharge'
 
     def is_in_charging_waypoint(self):
         return self.is_in_waypoint(self.charging_station_waypoint)
     
     def takeoff(self, t):
+        self.arm_and_set_offboard_mode(t)
         _, _, z_diff = self.calculate_distance_to_point([0, 0, self.flying_altitude])
         if z_diff > 0.1:
            self.offboard_ros_messenger.publish_setpoint(t, [self.current_x, self.current_y, self.flying_altitude - 0.1])
@@ -495,3 +522,30 @@ class OffboardControl:
         self.idle_waypoint[2] = self.flying_altitude
         self.charging_station_waypoint[2] = self.flying_altitude
 
+    def send_charing_intention(self):
+        if self.task != 'idle':
+            self.task_on_hold = self.task
+        self.task = 'idle'
+        msg = Message(to=str(self.agent_jid))
+        msg.set_metadata("performative", "inform")
+        msg.set_metadata("ontology", f"battery_alert")
+        msg.body = "I want to charge"
+        print_log(self.agent_jid.user, f"Sent battery alert{msg}")
+        asyncio.run_coroutine_threadsafe(self.behaviour.send(msg), self.loop)
+
+    def already_charged(self):
+        self.battery_flag = False
+        msg = Message(to=str(self.agent_jid))
+        msg.set_metadata("performative", "inform")
+        msg.set_metadata("ontology", f"battery_charged")
+        msg.body = "I'm charged"
+        asyncio.run_coroutine_threadsafe(self.behaviour.send(msg), self.loop)
+
+
+    def receive_charger_available(self):
+        self.turned_on = True
+        print(f"{self.agent_jid} fui chamado em receive_charger_available")
+        self.count = 0
+        self.task = self.task_on_hold
+        self.battery_flag = True
+        self.change_task_to_recharge()

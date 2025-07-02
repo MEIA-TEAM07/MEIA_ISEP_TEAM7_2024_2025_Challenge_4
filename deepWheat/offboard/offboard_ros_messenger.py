@@ -16,11 +16,10 @@ class OffboardRosMessenger:
     def __init__(self, offboardControl, node: Node, drone_id):
         try:
             self.drone_id = drone_id
-            qos = QoSProfile(depth=10)
+            qos = QoSProfile(depth=100)
             qos.reliability = ReliabilityPolicy.BEST_EFFORT
             self.bridge = CvBridge()
             self.offboardControl = offboardControl
-            print(f"Drone ID messenger: {drone_id}")
 
             # Publishers
             self.offboard_pub = node.create_publisher(OffboardControlMode, f'/px4_{self.drone_id}/fmu/in/offboard_control_mode', 10)
@@ -83,11 +82,12 @@ class OffboardRosMessenger:
         except Exception as e:
             print(e)
 
-    def publish_off_board_mode(self, t):
+    def publish_off_board_mode(self, t, who, count):
         try:
             offboard = OffboardControlMode()
             offboard.timestamp = t
             offboard.position = True
+            print(f"{count}: Drone {who}")
             self.offboard_pub.publish(offboard)
         except Exception as e:
             print(e)

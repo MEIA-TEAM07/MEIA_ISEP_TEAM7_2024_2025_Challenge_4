@@ -70,7 +70,6 @@ class VigilantDroneAgent(Agent):
                         field_id = msg.body
                         fsm = self.agent.create_fsm()
                         self.agent.add_behaviour(fsm)
-                        print(msg)
                         field_id, _ = msg.body.split("|")
                         self.agent.target_field = field_id
 
@@ -84,8 +83,7 @@ class VigilantDroneAgent(Agent):
                         print_log(self.agent.jid.user, f" Registration confirmed: {msg.body}")
                     else:
                         try:
-                            print(msg)
-                            fieldid,  = msg.body.split("|")
+                            field_id, _ = msg.body.split("|")
                             self.agent.target_field = field_id
                             print(f" Target field set to: {self.agent.target_field}")
                         except Exception as e:
@@ -110,13 +108,10 @@ class VigilantDroneAgent(Agent):
         async def run(self):
             self.agent.flag = True
             field_id = self.agent.target_field
-            print(field_id)
             self.target_waypoints = shared_field_map.return_plant_locations_by_field(field_id)
-            #self.target_waypoints.insert(0, [self.agent.offboard_control.current_x, self.agent.offboard_control.current_y, self.agent.offboard_control.flying_altitude])
-            #print(self.target_waypoints)
-            #self.target_waypoints = routing_service.find_shortest_path(self.target_waypoints)
-            #self.target_waypoints.pop(0)
-            self.target_waypoints = routing_service.find_shortest_fungicide_path(self.target_waypoints, [6.49, 4.5, -1.3], [0,0,0])
+            self.target_waypoints.insert(0, [self.agent.offboard_control.current_x, self.agent.offboard_control.current_y, self.agent.offboard_control.flying_altitude])
+            self.target_waypoints = routing_service.find_shortest_path(self.target_waypoints) 
+            self.target_waypoints.pop(0)
             self.agent.offboard_control.scan(self.target_waypoints)
             print_log(self.agent.jid.user, f" Navigating to field: {field_id}")
             self.set_next_state("SCAN")
@@ -147,7 +142,6 @@ class VigilantDroneAgent(Agent):
                                 msg.set_metadata("performative", "inform")
                                 msg.set_metadata("ontology", "disease_alert")
                                 msg.body = f"{field_id}|{x},{y}|{status}"
-                                print(msg)
                                 await self.send(msg)
                     except Exception as e:
                         print_log(self.agent.jid.user, f"❗ Error reporting disease: {e}")

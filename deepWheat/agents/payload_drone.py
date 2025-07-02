@@ -26,6 +26,40 @@ class PayloadDroneAgent(Agent):
         self.flag = False
         self.flag_work = False
 
+    class BatteryHandler(CyclicBehaviour):
+        async def run(self):
+            msg = await self.receive()
+            if not msg:
+                return
+            if msg:
+
+                performative = msg.metadata.get(PERFORMATIVE)
+                ontology = msg.metadata.get(ONTOLOGY)
+                print_log(self.agent.jid.user, f"BatteruHandler recebeu: {performative} and {ontology}")
+
+
+                if performative == PERFORMATIVE_INFORM and ontology  == "battery_alert":
+                    proposal = Message(to="central@localhost")
+                    proposal.set_metadata(PERFORMATIVE, PERFORMATIVE_INFORM)
+                    proposal.set_metadata(ONTOLOGY, ontology)
+                    proposal.body = f"{self.agent.jid.user}|{self.agent.offboard_control.battery_level}"
+                    print_log(self.agent.jid.user, f"PROPOSTA BATERIA: {proposal}")
+                    await self.send(proposal)
+                elif performative == PERFORMATIVE_INFORM and ontology == "charge_permission":
+                    print_log(self.agent.jid.user, f"Permissão de carregamento")
+                    self.agent.offboard_control.receive_charger_available()
+                elif performative == PERFORMATIVE_INFORM and ontology == "battery_charged":
+                    inform = Message(to="central@localhost")
+                    inform.set_metadata(PERFORMATIVE, PERFORMATIVE_INFORM)
+                    inform.set_metadata(ONTOLOGY, ontology)
+                    inform.body = f"{self.agent.jid.user}|{self.agent.offboard_control.battery_level}"
+                    print_log(self.agent.jid.user, f"BATERIA CARREGADA: {inform}")
+                    await self.send(inform)
+                else: 
+                    print_log(self.agent.jid.user, f"BatteryHandler encontrou erro nas ontologias/performativa {ontology} {performative}")
+
+    
+ 
     class TaskHandler(CyclicBehaviour):
         async def run(self):
             msg = await self.receive(timeout=5)
@@ -49,7 +83,7 @@ class PayloadDroneAgent(Agent):
                     proposal = Message(to=str(msg.sender))
                     proposal.set_metadata(PERFORMATIVE, PERFORMATIVE_PROPOSAL)
                     proposal.set_metadata(ONTOLOGY, ontology)
-                    proposal.body = f"{self.agent.jid.user}|{self.agent.battery_level}|{self.agent.wind_speed:.2f}"
+                    proposal.body = f"{self.agent.jid.user}|{self.agent.offboard_control.battery_level}|{self.agent.wind_speed:.2f}"
                     print_log(self.agent.jid.user, f"Eu tou a enviar proposta para {proposal}")
                     await self.send(proposal)
                     print_log(self.agent.jid.user, f"📤 Sent proposal for {ontology} at {field_info} by {self.agent.jid.user}")
@@ -227,7 +261,6 @@ class PayloadDroneAgent(Agent):
             self.loop = asyncio.get_event_loop()
             self.offboard_control.set_loop(self.loop)        
             self.wind_speed = random.uniform(WIND_MIN, WIND_MAX)
-            self.battery_level = 100.0
             self.target_position = None
             self.waypoint = None
             self.target_field = None
@@ -239,7 +272,7 @@ class PayloadDroneAgent(Agent):
             print_log(self.jid.user, f"🚁 PayloadDrone: Waiting for tasks... Current payload: {self.payload}")
 
 
-
+            self.add_behaviour(self.BatteryHandler())
             self.add_behaviour(self.TaskHandler())
         except Exception as e:
             print_log(self.jid.user, f"❗ Error during setup: {e}")

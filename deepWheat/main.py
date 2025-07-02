@@ -62,7 +62,7 @@ class ROSNodeThread(threading.Thread):
 async def main():
 
     clear_logs()
-    NUM_NODES_VIGILANT = 1
+    NUM_NODES_VIGILANT = 2
     NUM_NODES_PAYLOAD = 1
 
     ros_thread = ROSNodeThread()
@@ -73,12 +73,12 @@ async def main():
 
     drones = [
         VigilantDroneAgent(f"vigilant{i}@localhost", "admin1234", ros_thread.node, i)
-        for i in range(1, 2)  # creates vigilant1
+        for i in range(1, 3)  # creates vigilant1
     ]
 
     payload_drones = [
         PayloadDroneAgent(f"payload{i}@localhost", "admin1234", ros_thread.node, i + NUM_NODES_VIGILANT)
-        for i in range(1, 2)  # creates payload1
+        for i in range(1, 3)  # creates payload1
     ]
 
     field_agents = [
