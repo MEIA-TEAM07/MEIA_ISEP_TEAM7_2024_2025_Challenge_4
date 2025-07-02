@@ -24,13 +24,13 @@ class OffboardControl:
             self.payload_recharge_rate = 20
             self.payload_type = None
             self.payload_usage_fertilize = 3
-            self.payload_usage_fungicide = 1.5
+            self.payload_usage_fungicide = 0.8
             self.task_status_on_hold = False
             self.counterdown = 0
             self.charging_counter = 0
             self.battery_flag = False
             self.t_start = self.node.get_clock().now().nanoseconds
-
+            self.was_on_hold = False
             self.is_ready_to_charge = False
             
             # State
@@ -50,7 +50,10 @@ class OffboardControl:
             self.idle_waypoint = [x, y, self.flying_altitude]
             self.charging_station_waypoint = [0.0, 7.0, self.flying_altitude]
             self.battery_recharge_rate = 20
-            self.battery_usage = 0.06
+            if self.drone_id == '1' or self.drone_id == '2':
+                self.battery_usage = 0.02
+            else:
+                self.battery_usage = 0.06
             self.low_battery_threshold = 30.0
             self.idle_count = 0
             self.turned_on = True
@@ -312,6 +315,7 @@ class OffboardControl:
         is_last_waypoint = self.current_waypoint_index >= len(self.target_waypoints) - 1
 
         if self.waypoint_reached:
+            self.was_on_hold = False
             if not is_last_waypoint:
                 self.waypoint_reached = False
                 self.waypoint_counter = 0
@@ -330,7 +334,8 @@ class OffboardControl:
                     self.waypoint_reached = True
             else:
                 if even_index == False:
-                    self.payload_level -= self.payload_usage_fertilize
+                    if self.was_on_hold == False:
+                        self.payload_level -= self.payload_usage_fertilize
 
                 self.waypoint_counter = 0
 
@@ -498,6 +503,7 @@ class OffboardControl:
         if self.task != 'recharge':
             if self.task == 'fertilize':
                 self.task_status_on_hold = True
+                self.was_on_hold = True
             if self.task != 'idle':
                 self.task_on_hold = self.task
         self.task = 'recharge'
