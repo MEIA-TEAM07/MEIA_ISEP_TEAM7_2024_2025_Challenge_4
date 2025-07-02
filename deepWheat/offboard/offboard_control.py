@@ -13,6 +13,7 @@ from config import OFF_SET_DRONES
 class OffboardControl:
     def __init__(self, node: Node, drone_id, agent_jid, behaviour: FSMBehaviour):
         try:
+            self.drone_id = drone_id
             self.has_signal = False
             self.node = node
             self.agent_jid = agent_jid
@@ -20,7 +21,7 @@ class OffboardControl:
             self.flying_altitude = -1.3
             self.charging_intentions = []
             self.payload_level = 0
-            self.payload_recharge_rate = 2
+            self.payload_recharge_rate = 20
             self.payload_type = None
             self.payload_usage_fertilize = 3
             self.payload_usage_fungicide = 1.5
@@ -48,7 +49,7 @@ class OffboardControl:
 
             self.idle_waypoint = [x, y, self.flying_altitude]
             self.charging_station_waypoint = [0.0, 7.0, self.flying_altitude]
-            self.battery_recharge_rate = 0.7
+            self.battery_recharge_rate = 20
             self.battery_usage = 0.06
             self.low_battery_threshold = 30.0
             self.idle_count = 0
@@ -106,6 +107,9 @@ class OffboardControl:
             if self.battery_flag == True:
                 self.task = 'recharge'
             if self.turned_on == False and self.task != 'recharge':
+                if self.has_signal == True:
+                    self.offboard_signal.stop()
+                    self.has_signal = False
                 return
             if self.task_on_hold == 'scan':
                 self.manage_battery()
@@ -113,7 +117,13 @@ class OffboardControl:
                 self.manage_payload_and_battery()
             
             if self.battery_level <= 0.0:
-                print_log(self.agent_jid.user, "Battery depleted.")
+                if self.has_signal == True:
+                    try:
+                        print(f"Killed signal for {self.agent_jid} because battery depleted {self.agent_jid}")
+                        self.offboard_signal.stop()
+                        self.has_signal = False
+                    except Exception as e:
+                        print(f"{self.agent_jid} eu tentei matar uma merda que não devia. Erro: {e}" )
                 return
             if self.task == 'scan':
                 self.scan_callback(t)
@@ -132,9 +142,7 @@ class OffboardControl:
             print(f"Error in offboard callback: {e}")
 
     def scan_callback(self, t):
-
-        if self.mode_set and not self.gimbal_pointed:
-            self.offboard_ros_messenger.set_gimbal_pos()
+        self.offboard_ros_messenger.set_gimbal_pos()
 
         tookoff = self.takeoff(t)
             
@@ -153,6 +161,8 @@ class OffboardControl:
                             self.send_task_complete('scan')
 
     def charging_callback(self, t):
+        if self.drone_id == '4':
+            print(f"{self.agent_jid}: Run3: Task: {self.task}, Task on hold: {self.task_on_hold}, is_ready_to_charge: {self.is_ready_to_charge}")
         if self.is_ready_to_charge == False:
             self.is_ready_to_charge = self.follow_charging_path(t)
         return
@@ -170,15 +180,18 @@ class OffboardControl:
 
     def idle_callback(self, t):
         is_in_waypoint = self.is_in_waypoint(self.idle_waypoint)
-        if(self.idle_count < 35):
+        if(self.idle_count < 7 and self.has_signal == True):
             tookoff = self.takeoff(t)
             if tookoff == True:
                 self.offboard_ros_messenger.publish_setpoint(t,self.idle_waypoint)
             if is_in_waypoint:
+                print(f"T({self.node.get_clock().now().nanoseconds - self.t_start}): {self.agent_jid} somei 1 idle_count {self.idle_count}")
                 self.idle_count += 1
         else:
             if self.has_signal == True:
                 try:
+                    self.idle_count = 0
+                    print(f"T({self.node.get_clock().now().nanoseconds - self.t_start}): {self.agent_jid} idle_count {self.idle_count}")
                     print(f"Matei no idle_callback um processo signal para {self.agent_jid}")
                     self.offboard_signal.stop()
                     self.has_signal = False
@@ -255,7 +268,7 @@ class OffboardControl:
                 x_diff, y_diff, z_diff = self.calculate_distance_to_point(wp)
 
                 if (x_diff < 0.03 and y_diff < 0.03):
-                    if self.waypoint_counter >= 10:
+                    if self.waypoint_counter >= 3:
                         self.waypoint_reached = True
                     self.waypoint_counter += 1
                 else:
@@ -331,11 +344,11 @@ class OffboardControl:
                 self.first_count = False
                 return True
             self.first_count = False
-            if self.charging_counter < 10:
+            if self.charging_counter < 3:
                 self.charging_counter += 1
                 self.offboard_ros_messenger.publish_setpoint(t, self.charging_station_waypoint)
                 return False
-            elif self.counterdown <7 :
+            elif self.counterdown <3 :
                 self.counterdown  += 1
                 self.offboard_ros_messenger.publish_setpoint(t,[self.charging_station_waypoint[0], self.charging_station_waypoint[1], -1.0])
                 return False
@@ -354,6 +367,8 @@ class OffboardControl:
             self.count = 0
         self.first_count = False
         tookoff = self.takeoff(t)
+        if self.drone_id == '4':
+            print(f"{self.agent_jid}: Run4: tookoff: {tookoff}")
         if tookoff == True:
             self.offboard_ros_messenger.publish_setpoint(t, self.charging_station_waypoint)
         return False
@@ -441,20 +456,16 @@ class OffboardControl:
     def set_variables_for_activity(self):
         self.count = 0
         self.waypoint_counter = 0
-        self.mode_set = False
         self.armed = False
         self.altitude_reached = False
-        self.gimbal_pointed = False
         self.charging_intentions = []
         
     def reset_variables(self):
         self.count = 0
         self.waypoint_counter = 0
-        self.mode_set = False
         self.armed = False
         self.altitude_reached = False
         self.current_waypoint_index = 0
-        self.gimbal_pointed = False
         self.waypoint_index_on_hold = 0
         self.charging_counter = 0
         self.counterdown = 0
@@ -473,6 +484,7 @@ class OffboardControl:
         return x_diff < 0.2 and y_diff < 0.2 and abs(z_diff) < 0.12
     
     def change_from_recharge_to_task_on_hold(self):
+        self.is_ready_to_charge = False
         self.charging_counter = 0
         self.counterdown = 0
         self.task = self.task_on_hold
@@ -534,6 +546,7 @@ class OffboardControl:
         asyncio.run_coroutine_threadsafe(self.behaviour.send(msg), self.loop)
 
     def already_charged(self):
+        self.is_ready_to_charge = False
         self.battery_flag = False
         msg = Message(to=str(self.agent_jid))
         msg.set_metadata("performative", "inform")
@@ -544,8 +557,8 @@ class OffboardControl:
 
     def receive_charger_available(self):
         self.turned_on = True
-        print(f"{self.agent_jid} fui chamado em receive_charger_available")
+        print(f"{self.agent_jid} fui chamado em receive_charger_available Task: {self.task}, Task on hold: {self.task_on_hold}")
         self.count = 0
-        self.task = self.task_on_hold
+        #self.task = self.task_on_hold
         self.battery_flag = True
         self.change_task_to_recharge()

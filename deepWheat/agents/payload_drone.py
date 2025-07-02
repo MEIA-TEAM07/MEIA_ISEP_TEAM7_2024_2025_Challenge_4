@@ -29,21 +29,17 @@ class PayloadDroneAgent(Agent):
     class BatteryHandler(CyclicBehaviour):
         async def run(self):
             msg = await self.receive()
-            if not msg:
-                return
             if msg:
 
                 performative = msg.metadata.get(PERFORMATIVE)
                 ontology = msg.metadata.get(ONTOLOGY)
-                print_log(self.agent.jid.user, f"BatteruHandler recebeu: {performative} and {ontology}")
-
 
                 if performative == PERFORMATIVE_INFORM and ontology  == "battery_alert":
                     proposal = Message(to="central@localhost")
                     proposal.set_metadata(PERFORMATIVE, PERFORMATIVE_INFORM)
                     proposal.set_metadata(ONTOLOGY, ontology)
                     proposal.body = f"{self.agent.jid.user}|{self.agent.offboard_control.battery_level}"
-                    print_log(self.agent.jid.user, f"PROPOSTA BATERIA: {proposal}")
+                    print_log(self.agent.jid.user, f"Battery proposal: {proposal}")
                     await self.send(proposal)
                 elif performative == PERFORMATIVE_INFORM and ontology == "charge_permission":
                     print_log(self.agent.jid.user, f"Permissão de carregamento")
@@ -56,8 +52,7 @@ class PayloadDroneAgent(Agent):
                     print_log(self.agent.jid.user, f"BATERIA CARREGADA: {inform}")
                     await self.send(inform)
                 else: 
-                    print_log(self.agent.jid.user, f"BatteryHandler encontrou erro nas ontologias/performativa {ontology} {performative}")
-
+                    return
     
  
     class TaskHandler(CyclicBehaviour):
@@ -69,8 +64,6 @@ class PayloadDroneAgent(Agent):
                 ontology = msg.metadata.get(ONTOLOGY)
                 
                 if self.agent.flag_work == True and ontology not in ["completed_fertilize", "completed_fungicide"] :
-                    print_log(self.agent.jid.user, f" Ontology Rejected: {ontology} Flag is: {self.agent.flag_work}")
-                    print_log(self.agent.jid.user, f" Currently busy — ignoring CFP.")
                     return
 
                 if performative == PERFORMATIVE_CFP and ontology in LIST_OF_REQUEST_ONTOLOGIES:
@@ -84,7 +77,7 @@ class PayloadDroneAgent(Agent):
                     proposal.set_metadata(PERFORMATIVE, PERFORMATIVE_PROPOSAL)
                     proposal.set_metadata(ONTOLOGY, ontology)
                     proposal.body = f"{self.agent.jid.user}|{self.agent.offboard_control.battery_level}|{self.agent.wind_speed:.2f}"
-                    print_log(self.agent.jid.user, f"Eu tou a enviar proposta para {proposal}")
+                    print_log(self.agent.jid.user, f"Proposal: {proposal}")
                     await self.send(proposal)
                     print_log(self.agent.jid.user, f"📤 Sent proposal for {ontology} at {field_info} by {self.agent.jid.user}")
 
@@ -125,6 +118,7 @@ class PayloadDroneAgent(Agent):
                     print_log(self.agent.jid.user, f"MESSSAGE FOR FIELD {mail}: {fi_msg}")
                     await self.send(fi_msg)
                 elif performative == PERFORMATIVE_INFORM and ontology == "completed_fertilize":
+                    print_log(self.agent.jid.user, f"Received completed fertilization message")
                     self.agent.flag = True
                     mail = re.sub(r'_(\d+)$', r'\1@localhost', self.agent.target_field)
                     fi_msg = Message(to=mail)

@@ -48,7 +48,6 @@ class VigilantDroneAgent(Agent):
                 msg = await self.receive(timeout=5)
                 if msg:
                     if self.agent.flag == True:
-                        print_log(self.agent.jid.user, f" Currently busy — ignoring CFP.")
                         return
                         
                     performative = msg.metadata.get("performative")
