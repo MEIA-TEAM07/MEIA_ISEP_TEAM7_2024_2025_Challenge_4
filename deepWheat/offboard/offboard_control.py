@@ -23,7 +23,7 @@ class OffboardControl:
             self.payload_level = 0
             self.payload_recharge_rate = 20
             self.payload_type = None
-            self.payload_usage_fertilize = 3
+            self.payload_usage_fertilize = 0.8
             self.payload_usage_fungicide = 0.8
             self.task_status_on_hold = False
             self.counterdown = 0
@@ -509,7 +509,7 @@ class OffboardControl:
         self.task = 'recharge'
 
     def is_in_charging_waypoint(self):
-        return self.is_in_waypoint(self.charging_station_waypoint)
+        return self.is_in_waypoint(self.charging_station_waypoint, 0.3)
     
     def takeoff(self, t):
         self.arm_and_set_offboard_mode(t)
@@ -520,9 +520,9 @@ class OffboardControl:
         else:
             return True
         
-    def is_in_waypoint(self, waypoint):
+    def is_in_waypoint(self, waypoint, diff = 0.2):
         x_diff, y_diff, z_diff = self.calculate_distance_to_point(waypoint)
-        return x_diff < 0.2 and y_diff < 0.2
+        return x_diff < diff and y_diff < diff
     
     def adjust_waypoints_for_fertilization(self, waypoints):
         adjusted = waypoints.copy()

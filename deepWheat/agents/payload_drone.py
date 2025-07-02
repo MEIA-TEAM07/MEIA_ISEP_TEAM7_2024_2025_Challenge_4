@@ -60,7 +60,7 @@ class PayloadDroneAgent(Agent):
  
     class TaskHandler(CyclicBehaviour):
         async def run(self):
-            msg = await self.receive(timeout=5)
+            msg = await self.receive()
             
             if msg:
 

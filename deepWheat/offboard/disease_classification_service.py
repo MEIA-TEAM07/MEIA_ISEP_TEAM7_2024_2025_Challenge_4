@@ -14,7 +14,7 @@ _class_names = [
     diseases.BROWN_RUST,
     diseases.HEALTHY,
     diseases.MILDEW,
-    diseases.SEPTORIA,
+    diseases.HEALTHY,
     diseases.YELLOW_RUST
 ]
 
