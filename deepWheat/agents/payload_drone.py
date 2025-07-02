@@ -8,6 +8,8 @@ from offboard.offboard_control import OffboardControl
 from spade.agent import Agent
 from offboard import routing_service
 from spade.message import Message
+from spade.template import Template
+
 
 from utils.logger import print_log, print_agent_header
 from utils.battery import compute_battery_usage, drain_battery
@@ -28,7 +30,7 @@ class PayloadDroneAgent(Agent):
 
     class BatteryHandler(CyclicBehaviour):
         async def run(self):
-            msg = await self.receive()
+            msg = await self.receive(timeout=5)
             if msg:
 
                 performative = msg.metadata.get(PERFORMATIVE)
@@ -51,13 +53,15 @@ class PayloadDroneAgent(Agent):
                     inform.body = f"{self.agent.jid.user}|{self.agent.offboard_control.battery_level}"
                     print_log(self.agent.jid.user, f"BATERIA CARREGADA: {inform}")
                     await self.send(inform)
-                else: 
+                else:
+                    print(f"{self.agent.jid}: BatteryHandler received message: {msg}")
                     return
     
  
     class TaskHandler(CyclicBehaviour):
         async def run(self):
             msg = await self.receive(timeout=5)
+            
             if msg:
 
                 performative = msg.metadata.get(PERFORMATIVE)
@@ -266,7 +270,27 @@ class PayloadDroneAgent(Agent):
             print_log(self.jid.user, f"🚁 PayloadDrone: Waiting for tasks... Current payload: {self.payload}")
 
 
-            self.add_behaviour(self.BatteryHandler())
+            # Assumindo que PERFORMATIVE_INFORM, ONTOLOGY, etc. já estão definidos
+
+            # Templates individuais
+            t_alert = Template()
+            t_alert.set_metadata(PERFORMATIVE, PERFORMATIVE_INFORM)
+            t_alert.set_metadata(ONTOLOGY, "battery_alert")
+
+            t_permission = Template()
+            t_permission.set_metadata(PERFORMATIVE, PERFORMATIVE_INFORM)
+            t_permission.set_metadata(ONTOLOGY, "charge_permission")
+
+            t_charged = Template()
+            t_charged.set_metadata(PERFORMATIVE, PERFORMATIVE_INFORM)
+            t_charged.set_metadata(ONTOLOGY, "battery_charged")
+
+            # Combina com OR para criar um único filtro
+            battery_template = t_alert | t_permission | t_charged
+
+            # Depois, ao registar o behaviour:
+            self.add_behaviour(self.BatteryHandler(), battery_template)
+
             self.add_behaviour(self.TaskHandler())
         except Exception as e:
             print_log(self.jid.user, f"❗ Error during setup: {e}")
